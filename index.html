@@ -2765,7 +2765,8 @@ SEEDRISE: function(pixel) {
 	tempHigh: 425,
 	stateHigh: "fire",
 	state: "solid",
-	density: 1490
+	density: 1490,
+	airDrag: 0.05  // Light particles affected by air
 },
 "void": {
 	color: "#262626",
@@ -14005,16 +14006,32 @@ function langKey(key,fallback,template) {
 		const GAS_CONSTANT = 0.08; // scaled ideal gas constant
 		const PRESSURE_FORCE_MULTIPLIER = 3.0; // pressure gradient force scaling
 		
+		// AIR VELOCITY FIELD - Simulates air/fluid motion from pressure gradients
+		var airVelocityX = null;  // Horizontal air velocity
+		var airVelocityY = null;  // Vertical air velocity
+		const AIR_VELOCITY_DAMPING = 0.98;  // Air resistance (realistic drag)
+		const AIR_VELOCITY_MAX = 5.0;  // Maximum air velocity (stability)
+		
 		// Initialize pressure grid
 		function initPressureGrid() {
 			if (!settings.advancedPhysics) return;
 			pressureGridWidth = Math.ceil(width / PRESSURE_CELL_SIZE);
 			pressureGridHeight = Math.ceil(height / PRESSURE_CELL_SIZE);
+			
+			// Initialize pressure grid
 			pressureGrid = new Array(pressureGridWidth);
+			airVelocityX = new Array(pressureGridWidth);
+			airVelocityY = new Array(pressureGridWidth);
+			
 			for (let x = 0; x < pressureGridWidth; x++) {
 				pressureGrid[x] = new Array(pressureGridHeight);
+				airVelocityX[x] = new Array(pressureGridHeight);
+				airVelocityY[x] = new Array(pressureGridHeight);
+				
 				for (let y = 0; y < pressureGridHeight; y++) {
 					pressureGrid[x][y] = AMBIENT_PRESSURE;
+					airVelocityX[x][y] = 0;
+					airVelocityY[x][y] = 0;
 				}
 			}
 		}
@@ -14119,6 +14136,101 @@ function langKey(key,fallback,template) {
 					pressureGrid[x][y] = newPressure[x][y];
 				}
 			}
+			
+			// UPDATE AIR VELOCITY FIELD from pressure gradients
+			updateAirVelocity();
+		}
+		
+		// Update air velocity based on pressure gradients (fluid dynamics)
+		function updateAirVelocity() {
+			if (!airVelocityX || !airVelocityY || !pressureGrid) return;
+			
+			// Step 1: Pressure gradient affects air velocity
+			for (let x = 1; x < pressureGridWidth - 1; x++) {
+				for (let y = 1; y < pressureGridHeight - 1; y++) {
+					// Calculate pressure gradient (force on air)
+					const gradX = (pressureGrid[x+1][y] - pressureGrid[x-1][y]) * 0.5;
+					const gradY = (pressureGrid[x][y+1] - pressureGrid[x][y-1]) * 0.5;
+					
+					// Pressure gradient accelerates air
+					airVelocityX[x][y] -= gradX * 0.5;
+					airVelocityY[x][y] -= gradY * 0.5;
+				}
+			}
+			
+			// Step 2: Air velocity divergence affects pressure (conservation)
+			for (let x = 1; x < pressureGridWidth - 1; x++) {
+				for (let y = 1; y < pressureGridHeight - 1; y++) {
+					// Calculate velocity divergence
+					const divX = (airVelocityX[x+1][y] - airVelocityX[x-1][y]) * 0.5;
+					const divY = (airVelocityY[x][y+1] - airVelocityY[x][y-1]) * 0.5;
+					const divergence = divX + divY;
+					
+					// Divergence affects pressure (compression/expansion)
+					pressureGrid[x][y] -= divergence * 0.3;
+				}
+			}
+			
+			// Step 3: Apply damping and clamp velocities
+			for (let x = 0; x < pressureGridWidth; x++) {
+				for (let y = 0; y < pressureGridHeight; y++) {
+					// Air resistance
+					airVelocityX[x][y] *= AIR_VELOCITY_DAMPING;
+					airVelocityY[x][y] *= AIR_VELOCITY_DAMPING;
+					
+					// Clamp to prevent instability
+					airVelocityX[x][y] = Math.max(-AIR_VELOCITY_MAX, Math.min(AIR_VELOCITY_MAX, airVelocityX[x][y]));
+					airVelocityY[x][y] = Math.max(-AIR_VELOCITY_MAX, Math.min(AIR_VELOCITY_MAX, airVelocityY[x][y]));
+				}
+			}
+		}
+		
+		// Inject pressure wave from explosion (shockwave simulation)
+		function injectExplosionPressure(centerX, centerY, radius) {
+			if (!pressureGrid || !airVelocityX || !airVelocityY) return;
+			
+			const gridCenterX = Math.floor(centerX / PRESSURE_CELL_SIZE);
+			const gridCenterY = Math.floor(centerY / PRESSURE_CELL_SIZE);
+			const gridRadius = Math.ceil(radius / PRESSURE_CELL_SIZE);
+			
+			// Inject pressure in a radial pattern
+			for (let dx = -gridRadius; dx <= gridRadius; dx++) {
+				for (let dy = -gridRadius; dy <= gridRadius; dy++) {
+					const gx = gridCenterX + dx;
+					const gy = gridCenterY + dy;
+					
+					// Check bounds
+					if (gx < 0 || gx >= pressureGridWidth || gy < 0 || gy >= pressureGridHeight) continue;
+					
+					const dist = Math.sqrt(dx*dx + dy*dy);
+					if (dist <= gridRadius && dist > 0) {
+						// Pressure falls off with distance (inverse square)
+						const pressureIncrease = (radius / 5) * (1 - dist / gridRadius);
+						pressureGrid[gx][gy] += pressureIncrease;
+						
+						// Also add radial velocity (explosion pushes air outward)
+						const angle = Math.atan2(dy, dx);
+						const velocityMag = pressureIncrease * 0.5;
+						airVelocityX[gx][gy] += Math.cos(angle) * velocityMag;
+						airVelocityY[gx][gy] += Math.sin(angle) * velocityMag;
+					}
+				}
+			}
+		}
+		
+		// Apply air velocity to particles (drag force)
+		function applyAirDrag(pixel) {
+			if (!airVelocityX || !airVelocityY || !settings.advancedPhysics) return;
+			if (!elements[pixel.element].airDrag) return;
+			
+			const gridX = Math.floor(pixel.x / PRESSURE_CELL_SIZE);
+			const gridY = Math.floor(pixel.y / PRESSURE_CELL_SIZE);
+			
+			if (gridX < 0 || gridX >= pressureGridWidth || gridY < 0 || gridY >= pressureGridHeight) return;
+			
+			const airDragCoeff = elements[pixel.element].airDrag || 0.01;
+			pixel.vx += airVelocityX[gridX][gridY] * airDragCoeff;
+			pixel.vy += airVelocityY[gridX][gridY] * airDragCoeff;
 		}
 		
 		// Apply velocity-based movement to a pixel
@@ -16368,6 +16480,11 @@ behaviorRules = {
 		}
 
 		function explodeAt(x,y,radius,fire="fire") {
+			// INJECT PRESSURE into air system for shockwave
+			if (settings.advancedPhysics && pressureGrid) {
+				injectExplosionPressure(x, y, radius);
+			}
+			
 			// if fire contains , split it into an array
 			if (fire.indexOf(",") !== -1) {
 				fire = fire.split(",");
@@ -16656,6 +16773,7 @@ behaviorRules = {
 					// ENHANCED PHYSICS: Apply velocity-based movement
 					if (settings.advancedPhysics && pixel.vx !== undefined) {
 						applyVelocity(pixel);
+						applyAirDrag(pixel);  // Air affects particle movement
 						if (elements[pixel.element].state === "liquid") {
 							applySurfaceTension(pixel);
 							applyVorticity(pixel); // Add turbulence for realistic fluid flow
