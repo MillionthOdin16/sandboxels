@@ -1100,6 +1100,9 @@ SEEDRISE: function(pixel) {
 	stateHigh: "steam",
 	tempLow: 0,
 	stateLow: "ice",
+	// Pressure transitions: Water boils at lower temp under low pressure
+	pressureLow: 0.7,  // Below 0.7 atm, easier to boil (like high altitude)
+	// Under vacuum, water boils even at room temperature
 	category: "liquids",
 	heatCapacity: 4.184,
 	reactions: {
@@ -5275,6 +5278,9 @@ SEEDRISE: function(pixel) {
 	category: "gases",
 	tempLow: -78.5,
 	stateLow: "dry_ice",
+	// Pressure transitions: CO2 sublimates at low pressure (Mars-like conditions)
+	pressureLow: 0.5,  // Below 0.5 atm, skip liquid phase (sublimation)
+	statePressureLow: "dry_ice",
 	state: "gas",
 	density: 1.977,
 	heatCapacity: 0.844,
@@ -15970,8 +15976,20 @@ behaviorRules = {
 			if (pixel.temp < absoluteZero) { // Absolute Zero
 				pixel.temp = absoluteZero;
 			}
+			
+			// Adjust boiling point based on pressure (Clausius-Clapeyron approximation)
+			var tempHigh = elementInfo.tempHigh;
+			if (settings.advancedPhysics && pressureGrid && tempHigh !== undefined) {
+				const pressure = getPressureAt(pixel.x, pixel.y);
+				// Lower pressure = lower boiling point
+				// Rough approximation: For every 0.1 atm below 1.0, boiling point drops ~3°C
+				if (pressure < 1.0 && elementInfo.pressureLow) {
+					tempHigh = tempHigh - (1.0 - pressure) * 30;
+				}
+			}
+			
 			// If the pixel's temp >= the elementInfo tempHigh, change pixel.element to elementInfo.stateHigh
-			if (pixel.temp >= elementInfo.tempHigh) {
+			if (pixel.temp >= tempHigh) {
 				var result = elementInfo.stateHigh;
 				if (elementInfo.extraTempHigh) {
 					for (var extraTemp in elementInfo.extraTempHigh) {
@@ -16089,6 +16107,37 @@ behaviorRules = {
 					}
 				}
 			}
+			
+			// PRESSURE-BASED STATE TRANSITIONS
+			if (settings.advancedPhysics && pressureGrid) {
+				const pressure = getPressureAt(pixel.x, pixel.y);
+				
+				// Check for low pressure transitions (sublimation, boiling at low pressure)
+				if (elementInfo.pressureLow !== undefined && pressure < elementInfo.pressureLow) {
+					if (elementInfo.statePressureLow) {
+						var result = elementInfo.statePressureLow;
+						if (Array.isArray(result)) {
+							result = result[Math.floor(Math.random() * result.length)];
+						}
+						if (result !== null) {
+							changePixel(pixel, result, false);
+						}
+					}
+				}
+				// Check for high pressure transitions (compression, high-pressure phases)
+				else if (elementInfo.pressureHigh !== undefined && pressure > elementInfo.pressureHigh) {
+					if (elementInfo.statePressureHigh) {
+						var result = elementInfo.statePressureHigh;
+						if (Array.isArray(result)) {
+							result = result[Math.floor(Math.random() * result.length)];
+						}
+						if (result !== null) {
+							changePixel(pixel, result, false);
+						}
+					}
+				}
+			}
+			
 			return true;
 		}
 		function getNeighbors(pixel) {
