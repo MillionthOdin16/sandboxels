@@ -14280,9 +14280,15 @@ function langKey(key,fallback,template) {
 				btn.setAttribute("on", settings.advancedPhysics ? "true" : "false");
 			}
 			
-			// Initialize physics for existing particles when turning ON
+			// LIVE UPDATE: Handle physics toggle for existing particles
 			if (settings.advancedPhysics) {
+				// Initialize physics for existing particles when turning ON
 				initPhysicsForExistingPixels();
+			} else {
+				// Clean up physics properties when turning OFF (optional - keeps existing velocity)
+				// This allows smooth transitions when toggling physics
+				// Velocity properties are kept but won't be used when physics is off
+				// This prevents sudden position jumps when re-enabling physics
 			}
 		}
 		
@@ -15498,10 +15504,28 @@ behaviorRules = {
 					if (pixel.temp === newPixel.temp || elements[newPixel.element].insulate === true) {
 						continue;
 					}
-					// Set both pixel temperatures to their average
-					var avg = (pixel.temp + newPixel.temp)/2;
-					pixel.temp = avg;
-					newPixel.temp = avg;
+					
+					// IMPROVED: Respect heat capacity for realistic heat transfer
+					var pixelHeatCap = elements[pixel.element].heatCapacity || 1.0;
+					var neighborHeatCap = elements[newPixel.element].heatCapacity || 1.0;
+					
+					// Heat transfer uses weighted average based on heat capacities
+					// Q = m*c*ΔT, so with equal mass, temperature change is inversely proportional to heat capacity
+					var totalCapacity = pixelHeatCap + neighborHeatCap;
+					var tempDiff = newPixel.temp - pixel.temp;
+					
+					// Transfer is proportional to conductivity (simplified)
+					var pixelConduct = elements[pixel.element].conduct || 0.1;
+					var neighborConduct = elements[newPixel.element].conduct || 0.1;
+					var avgConduct = (pixelConduct + neighborConduct) / 2;
+					
+					// Energy transfer scaled by conductivity
+					var energyTransfer = tempDiff * avgConduct * 0.15;
+					
+					// Temperature changes inversely proportional to heat capacity
+					pixel.temp += energyTransfer / pixelHeatCap;
+					newPixel.temp -= energyTransfer / neighborHeatCap;
+					
 					pixelTempCheck(pixel);
 					pixelTempCheck(newPixel);
 				}
@@ -16541,14 +16565,25 @@ behaviorRules = {
 			2: { // Thermal View
 				name: "thermal",
 				onSelect: function(ctx) {
-					thermalMin = 0;
-					thermalMax = 100;
-
+					// Only recalculate if thermalMin/Max are at defaults
+					if (thermalMin === 0 && thermalMax === 100) {
+						currentPixels.forEach((p) => {
+							if (elements[p.element].insulate) return;
+							if (p.temp > thermalMax) thermalMax = (p.temp + thermalMax)/2;
+							if (p.temp < thermalMin) thermalMin = (p.temp + thermalMin)/2;
+						})
+					}
+					// Gradually adjust range to current temperatures (prevents sudden jumps)
+					let currentMax = 100;
+					let currentMin = 0;
 					currentPixels.forEach((p) => {
 						if (elements[p.element].insulate) return;
-						if (p.temp > thermalMax) thermalMax = (p.temp + thermalMax)/2;
-						if (p.temp < thermalMin) thermalMin = (p.temp + thermalMin)/2;
-					})
+						if (p.temp > currentMax) currentMax = p.temp;
+						if (p.temp < currentMin) currentMin = p.temp;
+					});
+					// Smooth transition to new range
+					thermalMax = (thermalMax * 0.9) + (currentMax * 0.1);
+					thermalMin = (thermalMin * 0.9) + (currentMin * 0.1);
 				},
 				pixel: function(pixel,ctx) {
 					var temp = pixel.temp;
@@ -16584,6 +16619,47 @@ behaviorRules = {
 				},
 				pixel: function(pixel,ctx) {
 					viewInfo[1].pixel(pixel,ctx);
+				}
+			},
+			5: { // Temperature Overlay View (NEW)
+				name: "temp_overlay",
+				effects: true,
+				colorEffects: true,
+				onSelect: function(ctx) {
+					// Initialize thermal range if needed
+					if (thermalMin === 0 && thermalMax === 100) {
+						currentPixels.forEach((p) => {
+							if (elements[p.element].insulate) return;
+							if (p.temp > thermalMax) thermalMax = (p.temp + thermalMax)/2;
+							if (p.temp < thermalMin) thermalMin = (p.temp + thermalMin)/2;
+						})
+					}
+				},
+				pixel: function(pixel,ctx) {
+					// Draw the element normally first
+					var a = (settings.textures !== 0) ? pixel.alpha : undefined;
+					if (((elements[pixel.element].isGas && elements[pixel.element].glow !== false) || elements[pixel.element].glow || pixel.glow) && pixel.glow !== false) {
+						drawPlus(ctx,pixel.color,pixel.x,pixel.y,undefined,a)
+					}
+					else {
+						drawSquare(ctx,pixel.color,pixel.x,pixel.y,undefined,a)
+					}
+					
+					// Add temperature overlay as a semi-transparent gradient
+					var temp = pixel.temp;
+					var hue = 255 - Math.round((temp - thermalMin) / (thermalMax - thermalMin) * 255);
+					if (hue < 0) {hue = 0}
+					if (hue > 225) {hue = 225}
+					
+					// Overlay temperature color with transparency
+					drawSquare(ctx,"hsla("+hue+",100%,50%,0.4)",pixel.x,pixel.y);
+					
+					// Charge effect
+					if (pixel.charge && view !== 2) {
+						if (!elements[pixel.element].colorOn) {
+							drawSquare(ctx,"rgba(255,255,0,0.5)",pixel.x,pixel.y);
+						}
+					}
 				}
 			}
 		}
@@ -17347,7 +17423,8 @@ behaviorRules = {
 				1: document.getElementById("viewNormalButton"),
 				2: document.getElementById("viewThermalButton"),
 				3: document.getElementById("viewBasicButton"),
-				4: document.getElementById("viewStreakButton")
+				4: document.getElementById("viewStreakButton"),
+				5: document.getElementById("viewTempOverlayButton")
 			};
 			
 			// Update button states
@@ -20221,7 +20298,7 @@ window.onload = function() {
 			<div id="stats"></div>
 			<div id="controls">
 				<div id="toolControls">
-					<button id="shiftButton" title="Toggle Shift key" class="controlButton" onclick='toggleShift();focusGame();' on="false" style="display:none">↑</button><button id="pauseButton" title="Pause/play the simulation" class="controlButton" onclick='togglePause();focusGame();' on="false">Pause</button><button id="frameButton" title="Pause and play one frame" class="controlButton" onclick='doFrame();focusGame();' on="false">&gt;</button><button id="sizeDownButton" title="Decrease the brush size" class="controlButton" onclick="mouseSize -= shiftDown?mouseSize-1:2;checkMouseSize(true);centerMouse();focusGame();">-</button><button id="sizeUpButton" title="Increase the brush size" class="controlButton" onclick="mouseSize += shiftDown?14:2;checkMouseSize(true);centerMouse();focusGame();">+</button><button id="resetButton" title="Clear the entire scene" class="controlButton" onclick="resetPrompt();">Reset</button><button id="replaceButton" title="Override existing pixels when placing" class="controlButton" onclick='if (mode == "replace") {mode = null;this.setAttribute("on","false");}else {mode = "replace";this.setAttribute("on","true");};focusGame();' on="false">Replace</button><button id="elemSelectButton" title="Select an element by name" class="controlButton" onclick='chooseElementPrompt();'>E</button><button id="tpsButton" title="Change the simulation Ticks Per Second (TPS)" class="controlButton" onclick='tpsPrompt()'>Tps</button><!--<button id="hideButton" title="Stops updating the scene to allow more resources towards simulation" class="controlButton" onclick='if (hiding) {hiding = false;this.setAttribute("on","false");}else {hiding = true;this.setAttribute("on","true");};focusGame();' on="false">Hide</button>--><button id="infoButton" title="Brings up the element info screen" class="controlButton" onclick='if (showingMenu!="info"){closeMenu();showInfo("")}else{closeMenu()};' on="false">Info</button><button id="savesButton" title="Brings up the Save & Load menu" class="controlButton" onclick='if (showingMenu!="saves"){closeMenu();showSaves()}else{closeMenu()};' on="false">Saves</button><button id="modsButton" title="Brings up the Mod Manager" class="controlButton" onclick='if (showingMenu!="mods"){closeMenu();showModManager()}else{closeMenu()};' on="false">Mods</button><button id="settingsButton" title="Brings up the settings screen" class="controlButton" onclick='if (showingMenu!="settings"){closeMenu();showSettings()}else{closeMenu()};' on="false">Settings</button><button id="viewNormalButton" title="Normal View (1)" class="controlButton viewButton" onclick='setView(1);focusGame();' on="true">Normal</button><button id="viewThermalButton" title="Thermal View (2)" class="controlButton viewButton" onclick='setView(2);focusGame();' on="false">Thermal</button><button id="viewBasicButton" title="Basic View (3)" class="controlButton viewButton" onclick='setView(3);focusGame();' on="false">Basic</button><button id="viewStreakButton" title="Streak View (4)" class="controlButton viewButton" onclick='setView(4);focusGame();' on="false">Streak</button><button id="physicsToggleButton" title="Toggle Advanced Physics (velocity, pressure, vorticity)" class="controlButton physicsButton" onclick="toggleAdvancedPhysics();focusGame();" on="false">⚛ Physics</button>
+					<button id="shiftButton" title="Toggle Shift key" class="controlButton" onclick='toggleShift();focusGame();' on="false" style="display:none">↑</button><button id="pauseButton" title="Pause/play the simulation" class="controlButton" onclick='togglePause();focusGame();' on="false">Pause</button><button id="frameButton" title="Pause and play one frame" class="controlButton" onclick='doFrame();focusGame();' on="false">&gt;</button><button id="sizeDownButton" title="Decrease the brush size" class="controlButton" onclick="mouseSize -= shiftDown?mouseSize-1:2;checkMouseSize(true);centerMouse();focusGame();">-</button><button id="sizeUpButton" title="Increase the brush size" class="controlButton" onclick="mouseSize += shiftDown?14:2;checkMouseSize(true);centerMouse();focusGame();">+</button><button id="resetButton" title="Clear the entire scene" class="controlButton" onclick="resetPrompt();">Reset</button><button id="replaceButton" title="Override existing pixels when placing" class="controlButton" onclick='if (mode == "replace") {mode = null;this.setAttribute("on","false");}else {mode = "replace";this.setAttribute("on","true");};focusGame();' on="false">Replace</button><button id="elemSelectButton" title="Select an element by name" class="controlButton" onclick='chooseElementPrompt();'>E</button><button id="tpsButton" title="Change the simulation Ticks Per Second (TPS)" class="controlButton" onclick='tpsPrompt()'>Tps</button><!--<button id="hideButton" title="Stops updating the scene to allow more resources towards simulation" class="controlButton" onclick='if (hiding) {hiding = false;this.setAttribute("on","false");}else {hiding = true;this.setAttribute("on","true");};focusGame();' on="false">Hide</button>--><button id="infoButton" title="Brings up the element info screen" class="controlButton" onclick='if (showingMenu!="info"){closeMenu();showInfo("")}else{closeMenu()};' on="false">Info</button><button id="savesButton" title="Brings up the Save & Load menu" class="controlButton" onclick='if (showingMenu!="saves"){closeMenu();showSaves()}else{closeMenu()};' on="false">Saves</button><button id="modsButton" title="Brings up the Mod Manager" class="controlButton" onclick='if (showingMenu!="mods"){closeMenu();showModManager()}else{closeMenu()};' on="false">Mods</button><button id="settingsButton" title="Brings up the settings screen" class="controlButton" onclick='if (showingMenu!="settings"){closeMenu();showSettings()}else{closeMenu()};' on="false">Settings</button><button id="viewNormalButton" title="Normal View (1)" class="controlButton viewButton" onclick='setView(1);focusGame();' on="true">Normal</button><button id="viewThermalButton" title="Thermal View (2)" class="controlButton viewButton" onclick='setView(2);focusGame();' on="false">Thermal</button><button id="viewBasicButton" title="Basic View (3)" class="controlButton viewButton" onclick='setView(3);focusGame();' on="false">Basic</button><button id="viewStreakButton" title="Streak View (4)" class="controlButton viewButton" onclick='setView(4);focusGame();' on="false">Streak</button><button id="viewTempOverlayButton" title="Temperature Overlay View (5)" class="controlButton viewButton" onclick='setView(5);focusGame();' on="false">Temp+</button><button id="physicsToggleButton" title="Toggle Advanced Physics (velocity, pressure, vorticity)" class="controlButton physicsButton" onclick="toggleAdvancedPhysics();focusGame();" on="false">⚛ Physics</button>
 				</div>
 				<script>
 					// if it is the 1st of April, add a rainbow-colored button
