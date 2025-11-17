@@ -2374,16 +2374,83 @@ SEEDRISE: function(pixel) {
 },
 "battery": {
 	color: "#9c6c25",
-	behavior: [
-		"XX|SH|XX", // shocks (adds charge)
-		"SH|XX|SH",
-		"XX|SH|XX",
-	],
+	tick: function(pixel) {
+		// Battery generates sparks continuously to adjacent conductors
+		if (pixelTicks % 3 === 0) {  // Every 3 ticks
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					// If neighbor is a conductor, create spark there
+					if (neighbor && elements[neighbor.element].conduct && neighbor.element !== "spark") {
+						if (Math.random() < 0.3) {  // 30% chance per conductor
+							createPixel("spark", x, y);
+						}
+					}
+				}
+			}
+		}
+	},
+	behavior: behaviors.WALL,
 	category: "machines",
 	tempHigh: 1455.5,
 	stateHigh: ["molten_steel","explosion","acid_gas"],
 	hardness: 0.8,
+	conduct: 1,  // Battery itself is conductive
 	breakInto: ["metal_scrap","acid"]
+},
+"insulated_wire": {
+	color: "#333333",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// Conducts electricity like wire but doesn't spark adjacent non-conductors
+		// The insulation prevents sparks from jumping to nearby elements
+	},
+	category: "machines",
+	conduct: 1,
+	insulate: true,
+	hardness: 0.3,
+	breakInto: "wire"
+},
+"switch": {
+	color: "#808080",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// Switch can be toggled on/off by clicking
+		// When on (tmp=1), it conducts. When off (tmp=0), it doesn't
+		if (pixel.tmp === 1) {
+			// Switch is ON - allow spark propagation
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					if (neighbor && neighbor.element === "spark" && elements[neighbor.element].conduct) {
+						// Allow spark to pass through
+					}
+				}
+			}
+		}
+	},
+	onSelect: function(pixel) {
+		// Toggle switch on click
+		pixel.tmp = pixel.tmp === 1 ? 0 : 1;
+		pixel.color = pixel.tmp === 1 ? "#00ff00" : "#808080";
+	},
+	properties: {
+		tmp: 0  // 0 = off, 1 = on
+	},
+	category: "machines",
+	conduct: function(pixel) {
+		// Only conduct when tmp=1 (on)
+		return pixel.tmp === 1 ? 1 : 0;
+	},
+	hardness: 0.5
 },
 "cloner": {
 	color: "#dddd00",
@@ -11413,6 +11480,51 @@ SEEDRISE: function(pixel) {
 	ignore: ["shocker"],
 	ignoreConduct: ["shocker"],
 	alias: "electron"
+},
+"spark": {
+	color: "#ffff00",
+	lifeKill: true,  // Dies when life reaches 0
+	tick: function(pixel) {
+		// Initialize life if not set
+		if (!pixel.life) {
+			pixel.life = 2;  // Very short-lived (2 ticks)
+		}
+		
+		// Propagate spark to adjacent conductors
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && elements[neighbor.element].conduct) {
+					// Don't spark pixels that are already sparked or are insulators
+					if (neighbor.element !== "spark" && !neighbor.sparked) {
+						// Heat up the conductor
+						neighbor.temp += 10;
+						
+						// Mark as sparked this tick to prevent re-sparking
+						neighbor.sparked = pixelTicks;
+						
+						// Create spark at conductor location
+						if (Math.random() < 0.7) {  // 70% chance to propagate
+							createPixel("spark", x, y);
+						}
+					}
+				}
+			}
+		}
+		
+		// Spark heats surrounding area
+		doHeat(pixel);
+	},
+	temp: 1000,
+	category: "energy",
+	state: "gas",
+	density: 0,
+	ignoreAir: true,
+	excludeRandom: true
 },
 "uranium": {
 	color: ["#599e61","#364d3c","#494d4a","#6c8a42","#798d65","#b5e089"],
