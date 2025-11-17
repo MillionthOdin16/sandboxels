@@ -14035,6 +14035,53 @@ function langKey(key,fallback,template) {
 			}
 		}
 		
+		// Calculate and apply vorticity for more realistic fluid turbulence
+		function applyVorticity(pixel) {
+			if (!settings.advancedPhysics || !pixel.vx || elements[pixel.element].state !== "liquid") return;
+			
+			// Calculate curl (vorticity) = ∂vx/∂y - ∂vy/∂x
+			let vorticitySum = 0;
+			let count = 0;
+			
+			// Sample velocity field in neighborhood
+			const checkPositions = [
+				{dx: 1, dy: 0}, {dx: -1, dy: 0},
+				{dx: 0, dy: 1}, {dx: 0, dy: -1}
+			];
+			
+			for (let i = 0; i < checkPositions.length; i++) {
+				const pos = checkPositions[i];
+				const nx = pixel.x + pos.dx;
+				const ny = pixel.y + pos.dy;
+				
+				if (!isEmpty(nx, ny, true)) {
+					const neighbor = pixelMap[nx][ny];
+					if (neighbor && neighbor.vx !== undefined && elements[neighbor.element].state === "liquid") {
+						// Approximate curl using finite differences
+						if (pos.dy !== 0) {
+							// ∂vx/∂y component
+							vorticitySum += (neighbor.vx - pixel.vx) / Math.abs(pos.dy);
+						}
+						if (pos.dx !== 0) {
+							// -∂vy/∂x component
+							vorticitySum -= (neighbor.vy - pixel.vy) / Math.abs(pos.dx);
+						}
+						count++;
+					}
+				}
+			}
+			
+			// Apply vorticity confinement force to preserve small-scale turbulence
+			if (count > 0) {
+				const vorticity = vorticitySum / count;
+				const vorticityStrength = 0.15; // Tunable parameter for turbulence intensity
+				
+				// Add perpendicular force to enhance rotation
+				pixel.vx += vorticity * vorticityStrength * (Math.random() - 0.5);
+				pixel.vy += vorticity * vorticityStrength * (Math.random() - 0.5);
+			}
+		}
+		
 		// Enhanced heat transfer with conduction, convection, and radiation (Fourier's Law)
 		function enhancedHeatTransfer(pixel) {
 			if (!settings.advancedPhysics) return;
@@ -16318,6 +16365,7 @@ behaviorRules = {
 						applyVelocity(pixel);
 						if (elements[pixel.element].state === "liquid") {
 							applySurfaceTension(pixel);
+							applyVorticity(pixel); // Add turbulence for realistic fluid flow
 						}
 					}
 				}
