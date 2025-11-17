@@ -2007,7 +2007,7 @@ SEEDRISE: function(pixel) {
 	},
 	temp: 1200,
 	tempLow: 800,
-	stateLow: ["basalt","basalt","basalt","rock"],
+	stateLow: ["basalt","basalt","basalt","rock"],  // Default if no ctype
 	viscosity: 10000,
 	category: "liquids",
 	state: "liquid",
@@ -13848,6 +13848,15 @@ function langKey(key,fallback,template) {
 					this.mass = elementInfo.density ? elementInfo.density / 1000 : 1;
 				}
 				
+				// MATERIAL MEMORY SYSTEM (ctype): Store element origin/state
+				// Used for: lava remembering source, cloning, filtering, etc.
+				this.ctype = null;  // Color/material type - remembers original element
+				this.tmp = 0;       // Temporary storage 1 - multipurpose counter/state
+				this.tmp2 = 0;      // Temporary storage 2 - additional state data
+				this.tmp3 = 0;      // Temporary storage 3 - extended storage
+				this.tmp4 = 0;      // Temporary storage 4 - extended storage
+				this.life = 0;      // Lifetime counter - used for decay, timers, burn duration
+				
 				pixelMap[x][y] = this;
 				if (airTemp !== 20) {pixelTempCheck(this); pixelTempCheck(this)}
 			}
@@ -15741,6 +15750,9 @@ behaviorRules = {
 				}
 				if (result === null) {deletePixel(pixel.x,pixel.y);return false}
 				else {
+					// MATERIAL MEMORY: Save original element when melting to molten/magma
+					var originalElement = pixel.element;
+					
 					if (elements[result].customColor) {
 						var tempColor = pixel.color;
 						changePixel(pixel,result,false);
@@ -15768,6 +15780,14 @@ behaviorRules = {
 						pixel.color = "rgb("+r+","+g+","+b+")";
 					}
 					else { changePixel(pixel,result,false); }
+					
+					// MATERIAL MEMORY: Store original element in ctype for molten materials
+					if (result === "magma" || result.startsWith("molten_")) {
+						if (!pixel.ctype) {  // Only set if not already set
+							pixel.ctype = originalElement;
+						}
+					}
+					
 					if (elementInfo.fireColor && result==="fire") {
 						pixel.color = pixelColorPick(pixel,elementInfo.fireColor);
 					}
@@ -15779,6 +15799,15 @@ behaviorRules = {
 			// If the pixel's temp <= the elementInfo tempLow, change pixel.element to elementInfo.stateLow
 			else if (pixel.temp <= elementInfo.tempLow) {
 				var result = elementInfo.stateLow;
+				
+				// MATERIAL MEMORY: Check if this molten material should restore to ctype
+				if (pixel.ctype && (pixel.element === "magma" || pixel.element.startsWith("molten_"))) {
+					if (elements[pixel.ctype]) {
+						result = pixel.ctype;  // Restore to original material
+						pixel.ctype = null;     // Clear ctype after use
+					}
+				}
+				
 				if (elementInfo.extraTempLow) {
 					for (var extraTemp in elementInfo.extraTempLow) {
 						if (pixel.temp <= extraTemp) {
