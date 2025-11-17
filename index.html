@@ -14095,6 +14095,30 @@ function langKey(key,fallback,template) {
 			}
 		}
 		
+		// Initialize physics properties for all existing particles
+		function initPhysicsForExistingPixels() {
+			if (!settings.advancedPhysics) return;
+			
+			// Initialize pressure grid if not already done
+			if (!pressureGrid) {
+				initPressureGrid();
+			}
+			
+			// Add velocity and mass to all existing movable particles
+			for (let i = 0; i < currentPixels.length; i++) {
+				const pixel = currentPixels[i];
+				const elementInfo = elements[pixel.element];
+				
+				// Only initialize physics for movable elements that don't already have it
+				if (elementInfo.movable && pixel.vx === undefined) {
+					pixel.vx = 0; // velocity X
+					pixel.vy = 0; // velocity Y
+					// Calculate mass based on density (default to 1 if not defined)
+					pixel.mass = elementInfo.density ? elementInfo.density / 1000 : 1;
+				}
+			}
+		}
+		
 		if (standalone && settings.pixelsize === undefined) {
 			settings.pixelsize = standaloneType === "steam" ? "7w" : "6w";
 		}
@@ -20300,7 +20324,7 @@ window.onload = function() {
 						<input type="button" value="Limitless" id="settingLabel-limitless" class="toggleInput" onclick="toggleInput(this,'limitless',false); refreshMaxPixels(); checkMouseSize(true);" state="0">
 					</span>
 					<span setting="advancedPhysics" class="setting-span multisetting" title="Default: OFF">
-						<input type="button" value="Advanced Physics" id="settingLabel-advancedPhysics" class="toggleInput" onclick="toggleInput(this,'advancedPhysics',false); if (settings.advancedPhysics && !pressureGrid) initPressureGrid();" state="0"><span class="helpMark" title="Enables realistic velocity, momentum, air pressure, surface tension, and enhanced heat transfer. May decrease performance.">?</span>
+						<input type="button" value="Advanced Physics" id="settingLabel-advancedPhysics" class="toggleInput" onclick="toggleInput(this,'advancedPhysics',false); if (settings.advancedPhysics) { if (!pressureGrid) initPressureGrid(); initPhysicsForExistingPixels(); }" state="0"><span class="helpMark" title="Enables realistic velocity, momentum, air pressure, surface tension, and enhanced heat transfer. May decrease performance.">?</span>
 					</span>
 					<span setting="cheerful" class="setting-span multisetting">
 						<input type="button" value="Cheerful Mode" id="settingLabel-cheerful" class="toggleInput" onclick="toggleInput(this,'cheerful',false);this.nextElementSibling.nextElementSibling.innerText=langKey('gui.settingsRefresh','Refresh Page')" state="0"><span class="helpMark" title="If you're going through a bad time, enable this to hide these elements from the menu:
