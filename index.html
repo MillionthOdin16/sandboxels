@@ -2419,26 +2419,26 @@ SEEDRISE: function(pixel) {
 	color: "#808080",
 	behavior: behaviors.WALL,
 	tick: function(pixel) {
-		// Switch can be toggled on/off by clicking
+		// Switch can be toggled on/off by right-clicking
 		// When on (tmp=1), it conducts. When off (tmp=0), it doesn't
+		// Update visual color based on state
 		if (pixel.tmp === 1) {
-			// Switch is ON - allow spark propagation
-			for (let i = 0; i < adjacentCoords.length; i++) {
-				let coord = adjacentCoords[i];
-				let x = pixel.x + coord[0];
-				let y = pixel.y + coord[1];
-				
-				if (!isEmpty(x, y, true)) {
-					let neighbor = pixelMap[x][y];
-					if (neighbor && neighbor.element === "spark" && elements[neighbor.element].conduct) {
-						// Allow spark to pass through
-					}
-				}
+			if (pixel.color !== "#00ff00") {
+				pixel.color = "#00ff00";
+			}
+		} else {
+			if (pixel.color !== "#808080") {
+				pixel.color = "#808080";
 			}
 		}
 	},
+	tool: function(pixel) {
+		// Toggle switch when clicked with the switch tool
+		pixel.tmp = pixel.tmp === 1 ? 0 : 1;
+		pixel.color = pixel.tmp === 1 ? "#00ff00" : "#808080";
+	},
 	onSelect: function(pixel) {
-		// Toggle switch on click
+		// Toggle switch on click in element selector
 		pixel.tmp = pixel.tmp === 1 ? 0 : 1;
 		pixel.color = pixel.tmp === 1 ? "#00ff00" : "#808080";
 	},
@@ -2446,10 +2446,7 @@ SEEDRISE: function(pixel) {
 		tmp: 0  // 0 = off, 1 = on
 	},
 	category: "machines",
-	conduct: function(pixel) {
-		// Only conduct when tmp=1 (on)
-		return pixel.tmp === 1 ? 1 : 0;
-	},
+	conduct: 0,  // Will be dynamically checked based on tmp in spark propagation
 	hardness: 0.5
 },
 "cloner": {
@@ -11499,7 +11496,14 @@ SEEDRISE: function(pixel) {
 			
 			if (!isEmpty(x, y, true)) {
 				let neighbor = pixelMap[x][y];
-				if (neighbor && elements[neighbor.element].conduct) {
+				// Check if neighbor conducts electricity
+				// For switches, check if they're turned on (tmp === 1)
+				let canConduct = elements[neighbor.element].conduct;
+				if (neighbor.element === "switch" && neighbor.tmp !== 1) {
+					canConduct = false;  // Switch is OFF, don't conduct
+				}
+				
+				if (neighbor && canConduct) {
 					// Don't spark pixels that are already sparked or are insulators
 					if (neighbor.element !== "spark" && !neighbor.sparked) {
 						// Heat up the conductor
