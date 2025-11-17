@@ -13792,7 +13792,7 @@ function langKey(key,fallback,template) {
 				}
 				
 				// ENHANCED PHYSICS: Initialize velocity and momentum
-				if (settings.advancedPhysics !== 0 && elementInfo.movable) {
+				if (settings.advancedPhysics && elementInfo.movable) {
 					this.vx = 0; // velocity X
 					this.vy = 0; // velocity Y
 					// Calculate mass based on density (default to 1 if not defined)
@@ -13910,7 +13910,7 @@ function langKey(key,fallback,template) {
 		
 		// Apply velocity-based movement to a pixel
 		function applyVelocity(pixel) {
-			if (!settings.advancedPhysics || !pixel.vx === undefined) return;
+			if (!settings.advancedPhysics || pixel.vx === undefined) return;
 			
 			// Apply gravity for non-gas elements
 			if (!elements[pixel.element].isGas && elements[pixel.element].movable) {
@@ -13956,7 +13956,7 @@ function langKey(key,fallback,template) {
 		
 		// Apply surface tension for liquids
 		function applySurfaceTension(pixel) {
-			if (!settings.advancedPhysics || !elements[pixel.element].state === "liquid") return;
+			if (!settings.advancedPhysics || elements[pixel.element].state !== "liquid") return;
 			
 			let cohesionX = 0;
 			let cohesionY = 0;
