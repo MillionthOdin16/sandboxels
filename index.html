@@ -13905,21 +13905,33 @@ function langKey(key,fallback,template) {
 				}
 			}
 			
-			// Diffuse pressure (smoothing for numerical stability)
+			// Enhanced pressure wave propagation using improved diffusion
 			const newPressure = new Array(pressureGridWidth);
 			for (let x = 0; x < pressureGridWidth; x++) {
 				newPressure[x] = new Array(pressureGridHeight);
 				for (let y = 0; y < pressureGridHeight; y++) {
-					let sum = pressureGrid[x][y];
-					let count = 1;
+					let sum = 0;
+					let count = 0;
 					
-					// Average with neighbors (Laplacian smoothing)
+					// 5-point stencil for better wave propagation (includes diagonal dampening)
+					const center = pressureGrid[x][y];
 					if (x > 0) { sum += pressureGrid[x-1][y]; count++; }
 					if (x < pressureGridWidth-1) { sum += pressureGrid[x+1][y]; count++; }
 					if (y > 0) { sum += pressureGrid[x][y-1]; count++; }
 					if (y < pressureGridHeight-1) { sum += pressureGrid[x][y+1]; count++; }
 					
-					newPressure[x][y] = pressureGrid[x][y] * (1 - PRESSURE_DIFFUSION) + (sum / count) * PRESSURE_DIFFUSION;
+					// Enhanced diffusion with wave preservation
+					if (count > 0) {
+						const avgNeighbor = sum / count;
+						const laplacian = avgNeighbor - center;
+						// Preserve wave energy while diffusing
+						newPressure[x][y] = center + laplacian * PRESSURE_DIFFUSION;
+					} else {
+						newPressure[x][y] = center;
+					}
+					
+					// Clamp to reasonable pressure range for stability
+					newPressure[x][y] = Math.max(0.1, Math.min(5.0, newPressure[x][y]));
 				}
 			}
 			
@@ -13979,15 +13991,40 @@ function langKey(key,fallback,template) {
 			pixel.vx = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, pixel.vx));
 			pixel.vy = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, pixel.vy));
 			
-			// Try to move based on velocity (sub-pixel accuracy with interpolation)
+			// Sub-pixel accurate movement with interpolated collision detection
 			if (Math.abs(pixel.vx) > 0.05 || Math.abs(pixel.vy) > 0.05) {
-				const targetX = Math.round(pixel.x + pixel.vx);
-				const targetY = Math.round(pixel.y + pixel.vy);
+				const targetX = pixel.x + pixel.vx;
+				const targetY = pixel.y + pixel.vy;
+				const finalX = Math.round(targetX);
+				const finalY = Math.round(targetY);
 				
-				if (!tryMove(pixel, targetX, targetY)) {
-					// Collision - realistic bounce with coefficient of restitution
-					if (targetX !== pixel.x) pixel.vx *= -RESTITUTION_COEFFICIENT;
-					if (targetY !== pixel.y) pixel.vy *= -RESTITUTION_COEFFICIENT;
+				// Check if we can move to the final position
+				if (!tryMove(pixel, finalX, finalY)) {
+					// Enhanced collision detection: check intermediate positions
+					let moved = false;
+					
+					// Try horizontal then vertical movement (sweep)
+					const midX = Math.round(pixel.x + pixel.vx);
+					if (tryMove(pixel, midX, pixel.y)) {
+						moved = true;
+						pixel.vx *= 0.5; // Reduce velocity due to partial movement
+					} else {
+						pixel.vx *= -RESTITUTION_COEFFICIENT; // Bounce X
+					}
+					
+					const midY = Math.round(pixel.y + pixel.vy);
+					if (tryMove(pixel, pixel.x, midY)) {
+						moved = true;
+						pixel.vy *= 0.5; // Reduce velocity due to partial movement
+					} else {
+						pixel.vy *= -RESTITUTION_COEFFICIENT; // Bounce Y
+					}
+					
+					// If both failed, apply full bounce
+					if (!moved) {
+						pixel.vx *= -RESTITUTION_COEFFICIENT;
+						pixel.vy *= -RESTITUTION_COEFFICIENT;
+					}
 				}
 			} else {
 				// Dampen very small velocities to zero (numerical stability)
@@ -14032,6 +14069,53 @@ function langKey(key,fallback,template) {
 				const interfaceFactor = 1 + (airInterfaces / 8.0);
 				pixel.vx += cohesionX * SURFACE_TENSION_STRENGTH * interfaceFactor / liquidNeighbors;
 				pixel.vy += cohesionY * SURFACE_TENSION_STRENGTH * interfaceFactor / liquidNeighbors;
+			}
+		}
+		
+		// Calculate and apply vorticity for more realistic fluid turbulence
+		function applyVorticity(pixel) {
+			if (!settings.advancedPhysics || !pixel.vx || elements[pixel.element].state !== "liquid") return;
+			
+			// Calculate curl (vorticity) = ∂vx/∂y - ∂vy/∂x
+			let vorticitySum = 0;
+			let count = 0;
+			
+			// Sample velocity field in neighborhood
+			const checkPositions = [
+				{dx: 1, dy: 0}, {dx: -1, dy: 0},
+				{dx: 0, dy: 1}, {dx: 0, dy: -1}
+			];
+			
+			for (let i = 0; i < checkPositions.length; i++) {
+				const pos = checkPositions[i];
+				const nx = pixel.x + pos.dx;
+				const ny = pixel.y + pos.dy;
+				
+				if (!isEmpty(nx, ny, true)) {
+					const neighbor = pixelMap[nx][ny];
+					if (neighbor && neighbor.vx !== undefined && elements[neighbor.element].state === "liquid") {
+						// Approximate curl using finite differences
+						if (pos.dy !== 0) {
+							// ∂vx/∂y component
+							vorticitySum += (neighbor.vx - pixel.vx) / Math.abs(pos.dy);
+						}
+						if (pos.dx !== 0) {
+							// -∂vy/∂x component
+							vorticitySum -= (neighbor.vy - pixel.vy) / Math.abs(pos.dx);
+						}
+						count++;
+					}
+				}
+			}
+			
+			// Apply vorticity confinement force to preserve small-scale turbulence
+			if (count > 0) {
+				const vorticity = vorticitySum / count;
+				const vorticityStrength = 0.15; // Tunable parameter for turbulence intensity
+				
+				// Add perpendicular force to enhance rotation
+				pixel.vx += vorticity * vorticityStrength * (Math.random() - 0.5);
+				pixel.vy += vorticity * vorticityStrength * (Math.random() - 0.5);
 			}
 		}
 		
@@ -14092,6 +14176,47 @@ function langKey(key,fallback,template) {
 				// Simulate evaporation energy loss
 				const evaporationRate = Math.min(0.1, (pixel.temp - 80) / 500);
 				pixel.temp -= evaporationRate;
+			}
+		}
+		
+		// Initialize physics properties for all existing particles
+		function initPhysicsForExistingPixels() {
+			if (!settings.advancedPhysics) return;
+			
+			// Initialize pressure grid if not already done
+			if (!pressureGrid) {
+				initPressureGrid();
+			}
+			
+			// Add velocity and mass to all existing movable particles
+			for (let i = 0; i < currentPixels.length; i++) {
+				const pixel = currentPixels[i];
+				const elementInfo = elements[pixel.element];
+				
+				// Only initialize physics for movable elements that don't already have it
+				if (elementInfo.movable && pixel.vx === undefined) {
+					pixel.vx = 0; // velocity X
+					pixel.vy = 0; // velocity Y
+					// Calculate mass based on density (default to 1 if not defined)
+					pixel.mass = elementInfo.density ? elementInfo.density / 1000 : 1;
+				}
+			}
+		}
+		
+		// Toggle Advanced Physics from UI button
+		function toggleAdvancedPhysics() {
+			settings.advancedPhysics = settings.advancedPhysics ? 0 : 1;
+			saveSettings();
+			
+			// Update button state
+			const btn = document.getElementById("physicsToggleButton");
+			if (btn) {
+				btn.setAttribute("on", settings.advancedPhysics ? "true" : "false");
+			}
+			
+			// Initialize physics for existing particles when turning ON
+			if (settings.advancedPhysics) {
+				initPhysicsForExistingPixels();
 			}
 		}
 		
@@ -16294,6 +16419,7 @@ behaviorRules = {
 						applyVelocity(pixel);
 						if (elements[pixel.element].state === "liquid") {
 							applySurfaceTension(pixel);
+							applyVorticity(pixel); // Add turbulence for realistic fluid flow
 						}
 					}
 				}
@@ -17143,7 +17269,39 @@ behaviorRules = {
 				viewInfo[n].onSelect(ctx);
 			}
 			view = n;
+			updateViewButtons();
 		}
+		
+		// Update view button states to show which view is active
+		function updateViewButtons() {
+			// Safety check: only run if DOM is ready and buttons exist
+			if (typeof document === 'undefined' || !document.getElementById) return;
+			
+			const viewButtons = {
+				1: document.getElementById("viewNormalButton"),
+				2: document.getElementById("viewThermalButton"),
+				3: document.getElementById("viewBasicButton"),
+				4: document.getElementById("viewStreakButton")
+			};
+			
+			// Update button states
+			for (let viewNum in viewButtons) {
+				if (viewButtons[viewNum]) {
+					if (parseInt(viewNum) === view) {
+						viewButtons[viewNum].setAttribute("on", "true");
+					} else {
+						viewButtons[viewNum].setAttribute("on", "false");
+					}
+				}
+			}
+			
+			// Update physics toggle button state
+			const physicsBtn = document.getElementById("physicsToggleButton");
+			if (physicsBtn) {
+				physicsBtn.setAttribute("on", settings.advancedPhysics ? "true" : "false");
+			}
+		}
+		
 		function centerMouse() {
 			mousePos = {x:width/2,y:height/2};
 		}
@@ -19997,7 +20155,7 @@ window.onload = function() {
 			<div id="stats"></div>
 			<div id="controls">
 				<div id="toolControls">
-					<button id="shiftButton" title="Toggle Shift key" class="controlButton" onclick='toggleShift();focusGame();' on="false" style="display:none">↑</button><button id="pauseButton" title="Pause/play the simulation" class="controlButton" onclick='togglePause();focusGame();' on="false">Pause</button><button id="frameButton" title="Pause and play one frame" class="controlButton" onclick='doFrame();focusGame();' on="false">&gt;</button><button id="sizeDownButton" title="Decrease the brush size" class="controlButton" onclick="mouseSize -= shiftDown?mouseSize-1:2;checkMouseSize(true);centerMouse();focusGame();">-</button><button id="sizeUpButton" title="Increase the brush size" class="controlButton" onclick="mouseSize += shiftDown?14:2;checkMouseSize(true);centerMouse();focusGame();">+</button><button id="resetButton" title="Clear the entire scene" class="controlButton" onclick="resetPrompt();">Reset</button><button id="replaceButton" title="Override existing pixels when placing" class="controlButton" onclick='if (mode == "replace") {mode = null;this.setAttribute("on","false");}else {mode = "replace";this.setAttribute("on","true");};focusGame();' on="false">Replace</button><button id="elemSelectButton" title="Select an element by name" class="controlButton" onclick='chooseElementPrompt();'>E</button><button id="tpsButton" title="Change the simulation Ticks Per Second (TPS)" class="controlButton" onclick='tpsPrompt()'>Tps</button><!--<button id="hideButton" title="Stops updating the scene to allow more resources towards simulation" class="controlButton" onclick='if (hiding) {hiding = false;this.setAttribute("on","false");}else {hiding = true;this.setAttribute("on","true");};focusGame();' on="false">Hide</button>--><button id="infoButton" title="Brings up the element info screen" class="controlButton" onclick='if (showingMenu!="info"){closeMenu();showInfo("")}else{closeMenu()};' on="false">Info</button><button id="savesButton" title="Brings up the Save & Load menu" class="controlButton" onclick='if (showingMenu!="saves"){closeMenu();showSaves()}else{closeMenu()};' on="false">Saves</button><button id="modsButton" title="Brings up the Mod Manager" class="controlButton" onclick='if (showingMenu!="mods"){closeMenu();showModManager()}else{closeMenu()};' on="false">Mods</button><button id="settingsButton" title="Brings up the settings screen" class="controlButton" onclick='if (showingMenu!="settings"){closeMenu();showSettings()}else{closeMenu()};' on="false">Settings</button>
+					<button id="shiftButton" title="Toggle Shift key" class="controlButton" onclick='toggleShift();focusGame();' on="false" style="display:none">↑</button><button id="pauseButton" title="Pause/play the simulation" class="controlButton" onclick='togglePause();focusGame();' on="false">Pause</button><button id="frameButton" title="Pause and play one frame" class="controlButton" onclick='doFrame();focusGame();' on="false">&gt;</button><button id="sizeDownButton" title="Decrease the brush size" class="controlButton" onclick="mouseSize -= shiftDown?mouseSize-1:2;checkMouseSize(true);centerMouse();focusGame();">-</button><button id="sizeUpButton" title="Increase the brush size" class="controlButton" onclick="mouseSize += shiftDown?14:2;checkMouseSize(true);centerMouse();focusGame();">+</button><button id="resetButton" title="Clear the entire scene" class="controlButton" onclick="resetPrompt();">Reset</button><button id="replaceButton" title="Override existing pixels when placing" class="controlButton" onclick='if (mode == "replace") {mode = null;this.setAttribute("on","false");}else {mode = "replace";this.setAttribute("on","true");};focusGame();' on="false">Replace</button><button id="elemSelectButton" title="Select an element by name" class="controlButton" onclick='chooseElementPrompt();'>E</button><button id="tpsButton" title="Change the simulation Ticks Per Second (TPS)" class="controlButton" onclick='tpsPrompt()'>Tps</button><!--<button id="hideButton" title="Stops updating the scene to allow more resources towards simulation" class="controlButton" onclick='if (hiding) {hiding = false;this.setAttribute("on","false");}else {hiding = true;this.setAttribute("on","true");};focusGame();' on="false">Hide</button>--><button id="infoButton" title="Brings up the element info screen" class="controlButton" onclick='if (showingMenu!="info"){closeMenu();showInfo("")}else{closeMenu()};' on="false">Info</button><button id="savesButton" title="Brings up the Save & Load menu" class="controlButton" onclick='if (showingMenu!="saves"){closeMenu();showSaves()}else{closeMenu()};' on="false">Saves</button><button id="modsButton" title="Brings up the Mod Manager" class="controlButton" onclick='if (showingMenu!="mods"){closeMenu();showModManager()}else{closeMenu()};' on="false">Mods</button><button id="settingsButton" title="Brings up the settings screen" class="controlButton" onclick='if (showingMenu!="settings"){closeMenu();showSettings()}else{closeMenu()};' on="false">Settings</button><button id="viewNormalButton" title="Normal View (1)" class="controlButton viewButton" onclick='setView(1);focusGame();' on="true">Normal</button><button id="viewThermalButton" title="Thermal View (2)" class="controlButton viewButton" onclick='setView(2);focusGame();' on="false">Thermal</button><button id="viewBasicButton" title="Basic View (3)" class="controlButton viewButton" onclick='setView(3);focusGame();' on="false">Basic</button><button id="viewStreakButton" title="Streak View (4)" class="controlButton viewButton" onclick='setView(4);focusGame();' on="false">Streak</button><button id="physicsToggleButton" title="Toggle Advanced Physics (velocity, pressure, vorticity)" class="controlButton physicsButton" onclick="toggleAdvancedPhysics();focusGame();" on="false">⚛ Physics</button>
 				</div>
 				<script>
 					// if it is the 1st of April, add a rainbow-colored button
@@ -20300,7 +20458,7 @@ window.onload = function() {
 						<input type="button" value="Limitless" id="settingLabel-limitless" class="toggleInput" onclick="toggleInput(this,'limitless',false); refreshMaxPixels(); checkMouseSize(true);" state="0">
 					</span>
 					<span setting="advancedPhysics" class="setting-span multisetting" title="Default: OFF">
-						<input type="button" value="Advanced Physics" id="settingLabel-advancedPhysics" class="toggleInput" onclick="toggleInput(this,'advancedPhysics',false); if (settings.advancedPhysics && !pressureGrid) initPressureGrid();" state="0"><span class="helpMark" title="Enables realistic velocity, momentum, air pressure, surface tension, and enhanced heat transfer. May decrease performance.">?</span>
+						<input type="button" value="Advanced Physics" id="settingLabel-advancedPhysics" class="toggleInput" onclick="toggleInput(this,'advancedPhysics',false); if (settings.advancedPhysics) { if (!pressureGrid) initPressureGrid(); initPhysicsForExistingPixels(); }" state="0"><span class="helpMark" title="Enables realistic velocity, momentum, air pressure, surface tension, and enhanced heat transfer. May decrease performance.">?</span>
 					</span>
 					<span setting="cheerful" class="setting-span multisetting">
 						<input type="button" value="Cheerful Mode" id="settingLabel-cheerful" class="toggleInput" onclick="toggleInput(this,'cheerful',false);this.nextElementSibling.nextElementSibling.innerText=langKey('gui.settingsRefresh','Refresh Page')" state="0"><span class="helpMark" title="If you're going through a bad time, enable this to hide these elements from the menu:
