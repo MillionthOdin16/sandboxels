@@ -12,6 +12,15 @@ New to modding? Read the Sandboxels Wiki articles on [getting started with moddi
 
 Please read the [Contribution Guidelines](https://github.com/R74nCom/sandboxels/tree/main/.github/CONTRIBUTING.md) before submitting your mod.
 
+## Developer Documentation
+
+For code maintainability and best practices, see:
+- **[Quick Reference](QUICK-REFERENCE.md)** - Fast lookup for common properties and patterns
+- **[Element Patterns](ELEMENT-PATTERNS.md)** - Real examples from the codebase
+- **[Best Practices](BEST-PRACTICES.md)** - Comprehensive development guide
+- **[Code Structure](REFACTORING.md)** - Architecture and organization guide
+- **[Helper Utilities](src/README.md)** - Element creation helpers and examples
+
 # Controls
  * Left Click = Draw pixels
  * Right Click = Erase pixels
