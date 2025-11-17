@@ -16587,7 +16587,10 @@ behaviorRules = {
 				},
 				pixel: function(pixel,ctx) {
 					var temp = pixel.temp;
-					var hue = 255 - Math.round((temp - thermalMin) / (thermalMax - thermalMin) * 255);
+					// Prevent division by zero when min equals max
+					var range = thermalMax - thermalMin;
+					if (range === 0) { range = 1; }
+					var hue = 255 - Math.round((temp - thermalMin) / range * 255);
 					if (hue < 0) {hue = 0}
 					if (hue > 225) {hue = 225}
 					drawSquare(ctx,"hsl("+hue+",100%,50%)",pixel.x,pixel.y)
@@ -16647,7 +16650,10 @@ behaviorRules = {
 					
 					// Add temperature overlay as a semi-transparent gradient
 					var temp = pixel.temp;
-					var hue = 255 - Math.round((temp - thermalMin) / (thermalMax - thermalMin) * 255);
+					// Prevent division by zero when min equals max
+					var range = thermalMax - thermalMin;
+					if (range === 0) { range = 1; }
+					var hue = 255 - Math.round((temp - thermalMin) / range * 255);
 					if (hue < 0) {hue = 0}
 					if (hue > 225) {hue = 225}
 					
