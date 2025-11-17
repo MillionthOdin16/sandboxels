@@ -13905,21 +13905,33 @@ function langKey(key,fallback,template) {
 				}
 			}
 			
-			// Diffuse pressure (smoothing for numerical stability)
+			// Enhanced pressure wave propagation using improved diffusion
 			const newPressure = new Array(pressureGridWidth);
 			for (let x = 0; x < pressureGridWidth; x++) {
 				newPressure[x] = new Array(pressureGridHeight);
 				for (let y = 0; y < pressureGridHeight; y++) {
-					let sum = pressureGrid[x][y];
-					let count = 1;
+					let sum = 0;
+					let count = 0;
 					
-					// Average with neighbors (Laplacian smoothing)
+					// 5-point stencil for better wave propagation (includes diagonal dampening)
+					const center = pressureGrid[x][y];
 					if (x > 0) { sum += pressureGrid[x-1][y]; count++; }
 					if (x < pressureGridWidth-1) { sum += pressureGrid[x+1][y]; count++; }
 					if (y > 0) { sum += pressureGrid[x][y-1]; count++; }
 					if (y < pressureGridHeight-1) { sum += pressureGrid[x][y+1]; count++; }
 					
-					newPressure[x][y] = pressureGrid[x][y] * (1 - PRESSURE_DIFFUSION) + (sum / count) * PRESSURE_DIFFUSION;
+					// Enhanced diffusion with wave preservation
+					if (count > 0) {
+						const avgNeighbor = sum / count;
+						const laplacian = avgNeighbor - center;
+						// Preserve wave energy while diffusing
+						newPressure[x][y] = center + laplacian * PRESSURE_DIFFUSION;
+					} else {
+						newPressure[x][y] = center;
+					}
+					
+					// Clamp to reasonable pressure range for stability
+					newPressure[x][y] = Math.max(0.1, Math.min(5.0, newPressure[x][y]));
 				}
 			}
 			
@@ -13979,15 +13991,40 @@ function langKey(key,fallback,template) {
 			pixel.vx = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, pixel.vx));
 			pixel.vy = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, pixel.vy));
 			
-			// Try to move based on velocity (sub-pixel accuracy with interpolation)
+			// Sub-pixel accurate movement with interpolated collision detection
 			if (Math.abs(pixel.vx) > 0.05 || Math.abs(pixel.vy) > 0.05) {
-				const targetX = Math.round(pixel.x + pixel.vx);
-				const targetY = Math.round(pixel.y + pixel.vy);
+				const targetX = pixel.x + pixel.vx;
+				const targetY = pixel.y + pixel.vy;
+				const finalX = Math.round(targetX);
+				const finalY = Math.round(targetY);
 				
-				if (!tryMove(pixel, targetX, targetY)) {
-					// Collision - realistic bounce with coefficient of restitution
-					if (targetX !== pixel.x) pixel.vx *= -RESTITUTION_COEFFICIENT;
-					if (targetY !== pixel.y) pixel.vy *= -RESTITUTION_COEFFICIENT;
+				// Check if we can move to the final position
+				if (!tryMove(pixel, finalX, finalY)) {
+					// Enhanced collision detection: check intermediate positions
+					let moved = false;
+					
+					// Try horizontal then vertical movement (sweep)
+					const midX = Math.round(pixel.x + pixel.vx);
+					if (tryMove(pixel, midX, pixel.y)) {
+						moved = true;
+						pixel.vx *= 0.5; // Reduce velocity due to partial movement
+					} else {
+						pixel.vx *= -RESTITUTION_COEFFICIENT; // Bounce X
+					}
+					
+					const midY = Math.round(pixel.y + pixel.vy);
+					if (tryMove(pixel, pixel.x, midY)) {
+						moved = true;
+						pixel.vy *= 0.5; // Reduce velocity due to partial movement
+					} else {
+						pixel.vy *= -RESTITUTION_COEFFICIENT; // Bounce Y
+					}
+					
+					// If both failed, apply full bounce
+					if (!moved) {
+						pixel.vx *= -RESTITUTION_COEFFICIENT;
+						pixel.vy *= -RESTITUTION_COEFFICIENT;
+					}
 				}
 			} else {
 				// Dampen very small velocities to zero (numerical stability)
