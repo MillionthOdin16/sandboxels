@@ -13790,10 +13790,311 @@ function langKey(key,fallback,template) {
 						}
 					}
 				}
+				
+				// ENHANCED PHYSICS: Initialize velocity and momentum
+				if (settings.advancedPhysics && elementInfo.movable) {
+					this.vx = 0; // velocity X
+					this.vy = 0; // velocity Y
+					// Calculate mass based on density (default to 1 if not defined)
+					this.mass = elementInfo.density ? elementInfo.density / 1000 : 1;
+				}
+				
 				pixelMap[x][y] = this;
 				if (airTemp !== 20) {pixelTempCheck(this); pixelTempCheck(this)}
 			}
 		}
+		
+		// ============================================================================
+		// ENHANCED PHYSICS SYSTEMS - High Fidelity Realistic Simulation
+		// ============================================================================
+		
+		// Physics constants (calibrated for realistic behavior)
+		const GRAVITY = 0.98; // ~9.8 m/s^2 scaled to pixel space (pixels per tick^2)
+		const AIR_RESISTANCE = 0.95; // realistic drag coefficient
+		const MAX_VELOCITY = 15; // terminal velocity in pixels/tick
+		const SURFACE_TENSION_STRENGTH = 0.5; // water surface tension ~72 mN/m scaled
+		const THERMAL_CONDUCTIVITY_DEFAULT = 0.1; // default heat transfer rate
+		const VISCOSITY_FACTOR = 0.8; // viscosity damping multiplier
+		const RESTITUTION_COEFFICIENT = 0.3; // bounciness (energy loss in collisions)
+		
+		// Pressure grid for gas simulation (ideal gas law approximation)
+		var pressureGrid = null;
+		var pressureGridWidth = 0;
+		var pressureGridHeight = 0;
+		const PRESSURE_CELL_SIZE = 4; // How many pixels per pressure cell
+		const PRESSURE_DIFFUSION = 0.3; // realistic diffusion rate
+		const AMBIENT_PRESSURE = 1.0; // Base atmospheric pressure (1 atm)
+		const GAS_CONSTANT = 0.08; // scaled ideal gas constant
+		const PRESSURE_FORCE_MULTIPLIER = 3.0; // pressure gradient force scaling
+		
+		// Initialize pressure grid
+		function initPressureGrid() {
+			if (!settings.advancedPhysics) return;
+			pressureGridWidth = Math.ceil(width / PRESSURE_CELL_SIZE);
+			pressureGridHeight = Math.ceil(height / PRESSURE_CELL_SIZE);
+			pressureGrid = new Array(pressureGridWidth);
+			for (let x = 0; x < pressureGridWidth; x++) {
+				pressureGrid[x] = new Array(pressureGridHeight);
+				for (let y = 0; y < pressureGridHeight; y++) {
+					pressureGrid[x][y] = AMBIENT_PRESSURE;
+				}
+			}
+		}
+		
+		// Get pressure at pixel coordinates
+		function getPressureAt(pixelX, pixelY) {
+			if (!pressureGrid || !settings.advancedPhysics) return AMBIENT_PRESSURE;
+			const gridX = Math.floor(pixelX / PRESSURE_CELL_SIZE);
+			const gridY = Math.floor(pixelY / PRESSURE_CELL_SIZE);
+			if (gridX < 0 || gridX >= pressureGridWidth || gridY < 0 || gridY >= pressureGridHeight) {
+				return AMBIENT_PRESSURE;
+			}
+			return pressureGrid[gridX][gridY];
+		}
+		
+		// Set pressure at pixel coordinates
+		function setPressureAt(pixelX, pixelY, pressure) {
+			if (!pressureGrid || !settings.advancedPhysics) return;
+			const gridX = Math.floor(pixelX / PRESSURE_CELL_SIZE);
+			const gridY = Math.floor(pixelY / PRESSURE_CELL_SIZE);
+			if (gridX < 0 || gridX >= pressureGridWidth || gridY < 0 || gridY >= pressureGridHeight) return;
+			pressureGrid[gridX][gridY] = pressure;
+		}
+		
+		// Update pressure grid based on gas particles (Ideal Gas Law: PV = nRT)
+		function updatePressureGrid() {
+			if (!pressureGrid || !settings.advancedPhysics) return;
+			
+			// Count gas particles per cell and calculate pressure using ideal gas law
+			const gasDensity = new Array(pressureGridWidth);
+			for (let x = 0; x < pressureGridWidth; x++) {
+				gasDensity[x] = new Array(pressureGridHeight).fill(0);
+			}
+			
+			// Count gas particles and sum their temperatures
+			const cellTemp = new Array(pressureGridWidth);
+			for (let x = 0; x < pressureGridWidth; x++) {
+				cellTemp[x] = new Array(pressureGridHeight).fill(0);
+			}
+			
+			for (let i = 0; i < currentPixels.length; i++) {
+				const pixel = currentPixels[i];
+				if (elements[pixel.element].isGas) {
+					const gridX = Math.floor(pixel.x / PRESSURE_CELL_SIZE);
+					const gridY = Math.floor(pixel.y / PRESSURE_CELL_SIZE);
+					if (gridX >= 0 && gridX < pressureGridWidth && gridY >= 0 && gridY < pressureGridHeight) {
+						gasDensity[gridX][gridY]++;
+						// Convert Celsius to Kelvin for gas law (T must be > 0)
+						cellTemp[gridX][gridY] += Math.max(1, pixel.temp + 273.15);
+					}
+				}
+			}
+			
+			// Calculate pressure from ideal gas law: P = (n/V)RT
+			for (let x = 0; x < pressureGridWidth; x++) {
+				for (let y = 0; y < pressureGridHeight; y++) {
+					const n = gasDensity[x][y];
+					if (n > 0) {
+						const avgTemp = cellTemp[x][y] / n;
+						// P = nRT/V, normalized to atmospheric pressure
+						const volume = PRESSURE_CELL_SIZE * PRESSURE_CELL_SIZE;
+						pressureGrid[x][y] = AMBIENT_PRESSURE + (n * GAS_CONSTANT * avgTemp) / (volume * 100);
+					} else {
+						pressureGrid[x][y] = AMBIENT_PRESSURE;
+					}
+				}
+			}
+			
+			// Diffuse pressure (smoothing for numerical stability)
+			const newPressure = new Array(pressureGridWidth);
+			for (let x = 0; x < pressureGridWidth; x++) {
+				newPressure[x] = new Array(pressureGridHeight);
+				for (let y = 0; y < pressureGridHeight; y++) {
+					let sum = pressureGrid[x][y];
+					let count = 1;
+					
+					// Average with neighbors (Laplacian smoothing)
+					if (x > 0) { sum += pressureGrid[x-1][y]; count++; }
+					if (x < pressureGridWidth-1) { sum += pressureGrid[x+1][y]; count++; }
+					if (y > 0) { sum += pressureGrid[x][y-1]; count++; }
+					if (y < pressureGridHeight-1) { sum += pressureGrid[x][y+1]; count++; }
+					
+					newPressure[x][y] = pressureGrid[x][y] * (1 - PRESSURE_DIFFUSION) + (sum / count) * PRESSURE_DIFFUSION;
+				}
+			}
+			
+			// Copy back
+			for (let x = 0; x < pressureGridWidth; x++) {
+				for (let y = 0; y < pressureGridHeight; y++) {
+					pressureGrid[x][y] = newPressure[x][y];
+				}
+			}
+		}
+		
+		// Apply velocity-based movement to a pixel
+		function applyVelocity(pixel) {
+			if (!settings.advancedPhysics || pixel.vx === undefined) return;
+			
+			// Apply gravity for non-gas elements
+			if (!elements[pixel.element].isGas && elements[pixel.element].movable) {
+				pixel.vy += GRAVITY;
+			}
+			
+			// Apply pressure forces for gases (pressure gradient force)
+			if (elements[pixel.element].isGas && pressureGrid) {
+				const pressure = getPressureAt(pixel.x, pixel.y);
+				const pressureRight = getPressureAt(pixel.x + PRESSURE_CELL_SIZE, pixel.y);
+				const pressureLeft = getPressureAt(pixel.x - PRESSURE_CELL_SIZE, pixel.y);
+				const pressureDown = getPressureAt(pixel.x, pixel.y + PRESSURE_CELL_SIZE);
+				const pressureUp = getPressureAt(pixel.x, pixel.y - PRESSURE_CELL_SIZE);
+				
+				// Move toward lower pressure (realistic pressure gradient force)
+				pixel.vx += (pressureLeft - pressureRight) * PRESSURE_FORCE_MULTIPLIER;
+				pixel.vy += (pressureUp - pressureDown) * PRESSURE_FORCE_MULTIPLIER;
+				
+				// Buoyancy: gases rise when pressure is higher than ambient
+				const buoyancy = (pressure - AMBIENT_PRESSURE) * 0.5;
+				pixel.vy -= buoyancy;
+			}
+			
+			// Apply viscosity for liquids (realistic fluid friction)
+			if (elements[pixel.element].state === "liquid" && elements[pixel.element].viscosity) {
+				const viscDamping = Math.pow(VISCOSITY_FACTOR, elements[pixel.element].viscosity / 100);
+				pixel.vx *= viscDamping;
+				pixel.vy *= viscDamping;
+			}
+			
+			// Apply air resistance (quadratic drag: F_drag = -k*v^2)
+			const speed = Math.sqrt(pixel.vx * pixel.vx + pixel.vy * pixel.vy);
+			if (speed > 0.1) {
+				const dragFactor = AIR_RESISTANCE - (1 - AIR_RESISTANCE) * (speed / MAX_VELOCITY);
+				pixel.vx *= dragFactor;
+				pixel.vy *= dragFactor;
+			} else {
+				pixel.vx *= AIR_RESISTANCE;
+				pixel.vy *= AIR_RESISTANCE;
+			}
+			
+			// Clamp velocity to terminal velocity
+			pixel.vx = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, pixel.vx));
+			pixel.vy = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, pixel.vy));
+			
+			// Try to move based on velocity (sub-pixel accuracy with interpolation)
+			if (Math.abs(pixel.vx) > 0.05 || Math.abs(pixel.vy) > 0.05) {
+				const targetX = Math.round(pixel.x + pixel.vx);
+				const targetY = Math.round(pixel.y + pixel.vy);
+				
+				if (!tryMove(pixel, targetX, targetY)) {
+					// Collision - realistic bounce with coefficient of restitution
+					if (targetX !== pixel.x) pixel.vx *= -RESTITUTION_COEFFICIENT;
+					if (targetY !== pixel.y) pixel.vy *= -RESTITUTION_COEFFICIENT;
+				}
+			} else {
+				// Dampen very small velocities to zero (numerical stability)
+				if (Math.abs(pixel.vx) < 0.05) pixel.vx = 0;
+				if (Math.abs(pixel.vy) < 0.05) pixel.vy = 0;
+			}
+		}
+		
+		// Apply surface tension for liquids (Young-Laplace equation approximation)
+		function applySurfaceTension(pixel) {
+			if (!settings.advancedPhysics || elements[pixel.element].state !== "liquid") return;
+			
+			let cohesionX = 0;
+			let cohesionY = 0;
+			let liquidNeighbors = 0;
+			let airInterfaces = 0;
+			
+			// Check all 8 neighbors for same liquid and air interfaces
+			for (let dx = -1; dx <= 1; dx++) {
+				for (let dy = -1; dy <= 1; dy++) {
+					if (dx === 0 && dy === 0) continue;
+					const nx = pixel.x + dx;
+					const ny = pixel.y + dy;
+					if (!isEmpty(nx, ny, true)) {
+						const neighbor = pixelMap[nx][ny];
+						if (neighbor && neighbor.element === pixel.element) {
+							// Cohesion: attract to same liquid
+							cohesionX -= dx;
+							cohesionY -= dy;
+							liquidNeighbors++;
+						}
+					} else {
+						// Air interface detected
+						airInterfaces++;
+					}
+				}
+			}
+			
+			// Apply cohesion force toward center of mass (surface tension minimization)
+			if (liquidNeighbors > 0 && pixel.vx !== undefined) {
+				// Stronger surface tension at air-liquid interfaces
+				const interfaceFactor = 1 + (airInterfaces / 8.0);
+				pixel.vx += cohesionX * SURFACE_TENSION_STRENGTH * interfaceFactor / liquidNeighbors;
+				pixel.vy += cohesionY * SURFACE_TENSION_STRENGTH * interfaceFactor / liquidNeighbors;
+			}
+		}
+		
+		// Enhanced heat transfer with conduction, convection, and radiation (Fourier's Law)
+		function enhancedHeatTransfer(pixel) {
+			if (!settings.advancedPhysics) return;
+			
+			const elementInfo = elements[pixel.element];
+			const conductivity = elementInfo.conduct !== undefined ? elementInfo.conduct : THERMAL_CONDUCTIVITY_DEFAULT;
+			
+			// Conduction: heat transfer to adjacent pixels (Fourier's Law: q = -k∇T)
+			let totalHeatTransfer = 0;
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				const coords = adjacentCoords[i];
+				const nx = pixel.x + coords[0];
+				const ny = pixel.y + coords[1];
+				if (!isEmpty(nx, ny, true)) {
+					const neighbor = pixelMap[nx][ny];
+					const neighborInfo = elements[neighbor.element];
+					const neighborConductivity = neighborInfo.conduct !== undefined ? neighborInfo.conduct : THERMAL_CONDUCTIVITY_DEFAULT;
+					
+					// Harmonic mean for interface conductivity (more accurate for different materials)
+					const interfaceConductivity = (2 * conductivity * neighborConductivity) / (conductivity + neighborConductivity + 0.001);
+					const tempDiff = neighbor.temp - pixel.temp;
+					
+					// Heat transfer rate (Fourier's law scaled)
+					const transfer = tempDiff * interfaceConductivity * 0.15;
+					totalHeatTransfer += transfer;
+					
+					// Apply transfer (conservation of energy)
+					neighbor.temp -= transfer;
+				}
+			}
+			pixel.temp += totalHeatTransfer;
+			
+			// Convection: heat transfer via velocity (Archimedes principle - buoyancy)
+			if (pixel.vy !== undefined && (elementInfo.state === "liquid" || elementInfo.isGas)) {
+				const tempAboveAir = pixel.temp - airTemp;
+				if (Math.abs(tempAboveAir) > 5) {
+					// Buoyancy force: F = ρ_air * g * V * (1 - ρ_fluid/ρ_air) ≈ ΔT effect
+					const buoyancyFactor = tempAboveAir / 300; // thermal expansion approximation
+					pixel.vy -= buoyancyFactor * 0.05;
+				}
+			}
+			
+			// Radiation: high temperature objects radiate heat (Stefan-Boltzmann Law: P = σεAT^4)
+			if (pixel.temp > 400) {
+				// Stefan-Boltzmann constant scaled for pixel simulation
+				const tempKelvin = pixel.temp + 273.15;
+				const ambientKelvin = airTemp + 273.15;
+				// Net radiation: σε(T^4 - T_ambient^4)
+				const radiationLoss = 0.00001 * (Math.pow(tempKelvin, 4) - Math.pow(ambientKelvin, 4));
+				pixel.temp -= radiationLoss;
+			}
+			
+			// Evaporative cooling for liquids at high temperatures
+			if (elementInfo.state === "liquid" && pixel.temp > 80) {
+				// Simulate evaporation energy loss
+				const evaporationRate = Math.min(0.1, (pixel.temp - 80) / 500);
+				pixel.temp -= evaporationRate;
+			}
+		}
+		
 		if (standalone && settings.pixelsize === undefined) {
 			settings.pixelsize = standaloneType === "steam" ? "7w" : "6w";
 		}
@@ -14151,6 +14452,23 @@ function langKey(key,fallback,template) {
 						if (validDensitySwaps[info.state][elements[newPixel.element].state] !== undefined && info.density >= elements[newPixel.element].density) {
 							// chance depending on the difference in density
 							if (Math.random() < (info.density - elements[newPixel.element].density)/(info.density + elements[newPixel.element].density)) {
+								// ENHANCED PHYSICS: Transfer momentum during swap
+								if (settings.advancedPhysics && pixel.vx !== undefined && newPixel.vx !== undefined) {
+									// Conservation of momentum: m1*v1 + m2*v2 = m1*v1' + m2*v2'
+									const m1 = pixel.mass || 1;
+									const m2 = newPixel.mass || 1;
+									const totalMass = m1 + m2;
+									
+									const newVx1 = (m1 - m2) / totalMass * pixel.vx + (2 * m2) / totalMass * newPixel.vx;
+									const newVy1 = (m1 - m2) / totalMass * pixel.vy + (2 * m2) / totalMass * newPixel.vy;
+									const newVx2 = (2 * m1) / totalMass * pixel.vx + (m2 - m1) / totalMass * newPixel.vx;
+									const newVy2 = (2 * m1) / totalMass * pixel.vy + (m2 - m1) / totalMass * newPixel.vy;
+									
+									pixel.vx = newVx1;
+									pixel.vy = newVy1;
+									newPixel.vx = newVx2;
+									newPixel.vy = newVy2;
+								}
 								swapPixels(pixel,newPixel);
 								return true;
 							}
@@ -14164,6 +14482,15 @@ function langKey(key,fallback,template) {
 					}
 				}
 				else if (info.isGas !== true && validDensitySwaps[info.state][info.state] !== undefined && Math.random() < 1/(currentPixels.length/10)) {
+					// ENHANCED PHYSICS: Transfer momentum during same-element swap
+					if (settings.advancedPhysics && pixel.vx !== undefined && newPixel.vx !== undefined) {
+						const avgVx = (pixel.vx + newPixel.vx) / 2;
+						const avgVy = (pixel.vy + newPixel.vy) / 2;
+						pixel.vx = avgVx;
+						pixel.vy = avgVy;
+						newPixel.vx = avgVx;
+						newPixel.vy = avgVy;
+					}
 					swapPixels(pixel,newPixel);
 					return true;
 				}
@@ -15934,6 +16261,11 @@ behaviorRules = {
 		}
 		function tickPixels() {
 			ticktemp = {};
+			
+			// Update pressure grid if advanced physics is enabled
+			if (settings.advancedPhysics && pressureGrid) {
+				updatePressureGrid();
+			}
 
 			var newCurrentPixels = currentPixels.slice();
 			shuffleArray(newCurrentPixels);
@@ -15956,8 +16288,22 @@ behaviorRules = {
 						if (pixel.y === currentSaveData.border) tryMove(pixel,pixel.x,height-currentSaveData.border-1);
 						else if (pixel.y === height-currentSaveData.border) tryMove(pixel,pixel.x,currentSaveData.border+1);
 					}
+					
+					// ENHANCED PHYSICS: Apply velocity-based movement
+					if (settings.advancedPhysics && pixel.vx !== undefined) {
+						applyVelocity(pixel);
+						if (elements[pixel.element].state === "liquid") {
+							applySurfaceTension(pixel);
+						}
+					}
 				}
 				if (pixel.del) {continue}
+				
+				// ENHANCED PHYSICS: Enhanced heat transfer
+				if (settings.advancedPhysics) {
+					enhancedHeatTransfer(pixel);
+				}
+				
 				if (elements[pixel.element].tick) { // Run tick function if it exists
 					elements[pixel.element].tick(pixel);
 				}
@@ -19248,6 +19594,12 @@ window.onload = function() {
 		height = Math.round(newHeight/newPixelSize)-1;
 		width = Math.round(newWidth/newPixelSize)-1;
 		mousePos = {x:Math.round(width/2),y:Math.round(height/2)};
+		
+		// ENHANCED PHYSICS: Initialize pressure grid when canvas is resized
+		if (settings.advancedPhysics) {
+			initPressureGrid();
+		}
+		
 		if (clear!==false) { clearAll(); }
 		var canvasLayerKeys = Object.keys(canvasLayers);
 		for (let i = 0; i < canvasLayerKeys.length; i++) {
@@ -19946,6 +20298,9 @@ window.onload = function() {
 					</span>
 					<span setting="limitless" class="setting-span multisetting" title="Default: OFF">
 						<input type="button" value="Limitless" id="settingLabel-limitless" class="toggleInput" onclick="toggleInput(this,'limitless',false); refreshMaxPixels(); checkMouseSize(true);" state="0">
+					</span>
+					<span setting="advancedPhysics" class="setting-span multisetting" title="Default: OFF">
+						<input type="button" value="Advanced Physics" id="settingLabel-advancedPhysics" class="toggleInput" onclick="toggleInput(this,'advancedPhysics',false); if (settings.advancedPhysics && !pressureGrid) initPressureGrid();" state="0"><span class="helpMark" title="Enables realistic velocity, momentum, air pressure, surface tension, and enhanced heat transfer. May decrease performance.">?</span>
 					</span>
 					<span setting="cheerful" class="setting-span multisetting">
 						<input type="button" value="Cheerful Mode" id="settingLabel-cheerful" class="toggleInput" onclick="toggleInput(this,'cheerful',false);this.nextElementSibling.nextElementSibling.innerText=langKey('gui.settingsRefresh','Refresh Page')" state="0"><span class="helpMark" title="If you're going through a bad time, enable this to hide these elements from the menu:
