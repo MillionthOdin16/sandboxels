@@ -1875,7 +1875,7 @@ SEEDRISE: function(pixel) {
 	color: "#b2daeb",
 	behavior: behaviors.WALL,
 	temp: -5,
-	tempHigh: 5,
+	tempHigh: 0,
 	stateHigh: "water",
 	category: "solids",
 	state: "solid",
@@ -2012,6 +2012,7 @@ SEEDRISE: function(pixel) {
 	category: "liquids",
 	state: "liquid",
 	density: 2725,
+	heatCapacity: 1.0,
 	alias: "lava"
 },
 "plasma": {
@@ -2034,6 +2035,7 @@ SEEDRISE: function(pixel) {
 	category: "energy",
 	state: "gas",
 	density: 1,
+	heatCapacity: 1.0,
 	//charge: 0.5,
 	conduct: 1
 },
@@ -5110,6 +5112,7 @@ SEEDRISE: function(pixel) {
 	state: "gas",
 	density: 0.08375,
 	conduct: 0.02,
+	heatCapacity: 14.3,
 	colorOn: "#7d15e5"
 },
 "oxygen": {
@@ -5138,7 +5141,8 @@ SEEDRISE: function(pixel) {
 	tempLow: -183.94,
 	stateLow: "liquid_oxygen",
 	state: "gas",
-	density: 1.292
+	density: 1.292,
+	heatCapacity: 0.918
 },
 "nitrogen": {
 	color: "#b8d1d4",
@@ -5200,6 +5204,7 @@ SEEDRISE: function(pixel) {
 	stateLow: "dry_ice",
 	state: "gas",
 	density: 1.977,
+	heatCapacity: 0.844,
 	alias: ["CO2","CO₂"]
 },
 "bubble": {
@@ -5311,6 +5316,7 @@ SEEDRISE: function(pixel) {
 	viscosity: 250,
 	state: "liquid",
 	density: 825,
+	heatCapacity: 2.0,
 	stain: 0.05,
 	alias: "petroleum"
 },
@@ -6438,6 +6444,7 @@ SEEDRISE: function(pixel) {
 	state: "liquid",
 	density: 1049,
 	viscosity: 1.5,
+	heatCapacity: 2.5,
 	stain: -0.1,
 	alias: "hydrochloric acid"
 },
