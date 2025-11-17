@@ -1460,7 +1460,9 @@ SEEDRISE: function(pixel) {
 	stateLow: "permafrost",
 	category:"land",
 	state: "solid",
-	density: 1220
+	density: 1220,
+	collision: 0.2,  // Dirt particles collide
+	newtonianGravity: true  // Affected by gravity field
 },
 "mud": {
 	color: "#382417",
@@ -1882,7 +1884,8 @@ SEEDRISE: function(pixel) {
 	conduct: 0.002,
 	stain: -0.05,
 	alias: "water vapor",
-	extinguish: true
+	extinguish: true,
+	airDrag: 0.02  // Light gas affected by air currents
 },
 "ice": {
 	color: "#b2daeb",
@@ -1934,7 +1937,10 @@ SEEDRISE: function(pixel) {
 	stateHigh: "water",
 	category: "land",
 	state: "solid",
-	density: 100
+	density: 100,
+	airDrag: 0.06,  // Very light, easily blown
+	collision: 0.1,  // Soft collisions
+	newtonianGravity: true  // Affected by gravity field
 },
 "slush": {
 	color: "#81bcd4",
@@ -2006,7 +2012,8 @@ SEEDRISE: function(pixel) {
 	state: "gas",
 	density: 0.1,
 	stain: 0.075,
-	noMix: true
+	noMix: true,
+	airDrag: 0.03  // Smoke dispersed by air
 },
 "magma": {
 	color: ["#ff6f00","#ff8c00","#ff4d00"],
@@ -2311,7 +2318,9 @@ SEEDRISE: function(pixel) {
 	state: "solid",
 	density: 2160,
 	fireColor: "#F1E906",
-	alias: "sodium chloride"
+	alias: "sodium chloride",
+	collision: 0.3,  // Salt crystals bounce
+	newtonianGravity: true  // Affected by gravity field
 },
 "molten_salt": {
 	conduct: 0.1,
@@ -2722,7 +2731,9 @@ SEEDRISE: function(pixel) {
 	state: "solid",
 	density: 1680,
 	hardness: 0.2,
-	breakInto: "sand"
+	breakInto: "sand",
+	collision: 0.25,  // Gravel bounces slightly
+	newtonianGravity: true  // Affected by gravity field
 },
 "slime": {
 	color: "#81cf63",
@@ -4921,7 +4932,10 @@ SEEDRISE: function(pixel) {
 	density: 700,
 	tempHigh: 2000,
 	forceAutoGen: true,
-	stateHigh: ["molten_ash","smoke","smoke","smoke"]
+	stateHigh: ["molten_ash","smoke","smoke","smoke"],
+	airDrag: 0.04,  // Very light, easily blown by air
+	collision: 0.15,  // Very light collisions
+	newtonianGravity: true  // Affected by gravity field
 },
 "molten_ash": {
 	tempHigh: 3550,
@@ -5250,7 +5264,8 @@ SEEDRISE: function(pixel) {
 	stateLow: "liquid_oxygen",
 	state: "gas",
 	density: 1.292,
-	heatCapacity: 0.918
+	heatCapacity: 0.918,
+	airDrag: 0.015  // Light gas affected by air
 },
 "nitrogen": {
 	color: "#b8d1d4",
@@ -5265,7 +5280,8 @@ SEEDRISE: function(pixel) {
 	tempLow: -195.8,
 	stateLow: "liquid_nitrogen",
 	state: "gas",
-	density: 1.165
+	density: 1.165,
+	airDrag: 0.015  // Light gas affected by air
 },
 "helium": {
 	color: "#a69494",
@@ -12502,7 +12518,9 @@ SEEDRISE: function(pixel) {
 	state: "solid",
 	density: 1700,
 	excludeRandom: true,
-	alias: "black powder"
+	alias: "black powder",
+	collision: 0.2,  // Gunpowder particles
+	newtonianGravity: true  // Affected by gravity field
 },
 "ember": {
 	color: ["#ffe985","#ffd885","#ffc285"],
