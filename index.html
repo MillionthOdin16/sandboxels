@@ -1092,7 +1092,8 @@ SEEDRISE: function(pixel) {
 	state: "solid",
 	density: 1602,
 	heatCapacity: 0.835,
-	collision: 0.3  // Bouncy sand particles
+	collision: 0.3,  // Bouncy sand particles
+	newtonianGravity: true  // Affected by gravity field
 },
 "water": {
 	color: "#2167ff",
@@ -2768,7 +2769,8 @@ SEEDRISE: function(pixel) {
 	state: "solid",
 	density: 1490,
 	airDrag: 0.05,  // Light particles affected by air
-	collision: 0.4  // Bouncy dust particles
+	collision: 0.4,  // Bouncy dust particles
+	newtonianGravity: true  // Affected by gravity field
 },
 "void": {
 	color: "#262626",
@@ -2789,6 +2791,34 @@ SEEDRISE: function(pixel) {
 	excludeRandom: true,
 	movable: false,
 	insulate: true
+},
+"black_hole": {
+	color: "#000000",
+	tick: function(pixel) {
+		// Black hole consumes nearby matter
+		for (var i = 0; i < adjacentCoords.length; i++) {
+			var x = pixel.x+adjacentCoords[i][0];
+			var y = pixel.y+adjacentCoords[i][1];
+			if (!isEmpty(x,y,true)) {
+				var newPixel = pixelMap[x][y];
+				if (elements[newPixel.element].hardness === 1) { continue; }
+				// Add mass to black hole from consumed matter
+				if (!pixel.consumedMass) pixel.consumedMass = 0;
+				pixel.consumedMass += (newPixel.mass || 1);
+				pixel.mass = 100 + pixel.consumedMass;  // Massive object
+				deletePixel(x,y);
+			}
+		}
+	},
+	category:"special",
+	hardness: 1,
+	excludeRandom: true,
+	movable: false,
+	insulate: true,
+	newtonianGravity: true,
+	properties: {
+		mass: 100  // Very massive
+	}
 },
 "sun": {
 	color: "#ffffbd",
@@ -14024,6 +14054,15 @@ function langKey(key,fallback,template) {
 		const AIR_VELOCITY_DAMPING = 0.98;  // Air resistance (realistic drag)
 		const AIR_VELOCITY_MAX = 5.0;  // Maximum air velocity (stability)
 		
+		// NEWTONIAN GRAVITY FIELD - Particle-to-particle gravitational attraction
+		var gravityFieldX = null;  // Gravity field X component
+		var gravityFieldY = null;  // Gravity field Y component
+		const GRAVITY_CONSTANT = 0.1;  // Gravitational constant (scaled)
+		const GRAVITY_CELL_SIZE = 8;  // Larger cells for performance
+		const GRAVITY_MAX_FORCE = 2.0;  // Maximum gravity force (stability)
+		var gravityGridWidth = 0;
+		var gravityGridHeight = 0;
+		
 		// Initialize pressure grid
 		function initPressureGrid() {
 			if (!settings.advancedPhysics) return;
@@ -14044,6 +14083,23 @@ function langKey(key,fallback,template) {
 					pressureGrid[x][y] = AMBIENT_PRESSURE;
 					airVelocityX[x][y] = 0;
 					airVelocityY[x][y] = 0;
+				}
+			}
+			
+			// Initialize gravity grid
+			gravityGridWidth = Math.ceil(width / GRAVITY_CELL_SIZE);
+			gravityGridHeight = Math.ceil(height / GRAVITY_CELL_SIZE);
+			
+			gravityFieldX = new Array(gravityGridWidth);
+			gravityFieldY = new Array(gravityGridWidth);
+			
+			for (let x = 0; x < gravityGridWidth; x++) {
+				gravityFieldX[x] = new Array(gravityGridHeight);
+				gravityFieldY[x] = new Array(gravityGridHeight);
+				
+				for (let y = 0; y < gravityGridHeight; y++) {
+					gravityFieldX[x][y] = 0;
+					gravityFieldY[x][y] = 0;
 				}
 			}
 		}
@@ -14228,6 +14284,93 @@ function langKey(key,fallback,template) {
 					}
 				}
 			}
+		}
+		
+		// NEWTONIAN GRAVITY SYSTEM - Calculate gravitational field from mass distribution
+		function updateGravityField() {
+			if (!gravityFieldX || !gravityFieldY || !settings.advancedPhysics) return;
+			
+			// Reset gravity field
+			for (let x = 0; x < gravityGridWidth; x++) {
+				for (let y = 0; y < gravityGridHeight; y++) {
+					gravityFieldX[x][y] = 0;
+					gravityFieldY[x][y] = 0;
+				}
+			}
+			
+			// Calculate mass per cell
+			const cellMass = new Array(gravityGridWidth);
+			for (let x = 0; x < gravityGridWidth; x++) {
+				cellMass[x] = new Array(gravityGridHeight).fill(0);
+			}
+			
+			// Count particle mass in each cell
+			for (let i = 0; i < currentPixels.length; i++) {
+				const pixel = currentPixels[i];
+				if (!elements[pixel.element].newtonianGravity) continue;
+				
+				const gridX = Math.floor(pixel.x / GRAVITY_CELL_SIZE);
+				const gridY = Math.floor(pixel.y / GRAVITY_CELL_SIZE);
+				
+				if (gridX >= 0 && gridX < gravityGridWidth && gridY >= 0 && gridY < gravityGridHeight) {
+					cellMass[gridX][gridY] += pixel.mass || 1;
+				}
+			}
+			
+			// Calculate gravitational field (simplified - only nearby cells for performance)
+			const maxRange = 5;  // Only calculate gravity within this many cells
+			for (let x = 0; x < gravityGridWidth; x++) {
+				for (let y = 0; y < gravityGridHeight; y++) {
+					if (cellMass[x][y] === 0) continue;
+					
+					// Apply gravity to nearby cells
+					for (let dx = -maxRange; dx <= maxRange; dx++) {
+						for (let dy = -maxRange; dy <= maxRange; dy++) {
+							if (dx === 0 && dy === 0) continue;
+							
+							const nx = x + dx;
+							const ny = y + dy;
+							
+							if (nx < 0 || nx >= gravityGridWidth || ny < 0 || ny >= gravityGridHeight) continue;
+							
+							// Calculate gravitational force
+							const dist = Math.sqrt(dx*dx + dy*dy);
+							const force = GRAVITY_CONSTANT * cellMass[x][y] / (dist * dist + 1);  // +1 prevents division by zero
+							
+							// Direction from target cell to mass cell
+							const dirX = dx / dist;
+							const dirY = dy / dist;
+							
+							// Accumulate force
+							gravityFieldX[nx][ny] += force * dirX;
+							gravityFieldY[nx][ny] += force * dirY;
+						}
+					}
+				}
+			}
+			
+			// Clamp gravity forces for stability
+			for (let x = 0; x < gravityGridWidth; x++) {
+				for (let y = 0; y < gravityGridHeight; y++) {
+					gravityFieldX[x][y] = Math.max(-GRAVITY_MAX_FORCE, Math.min(GRAVITY_MAX_FORCE, gravityFieldX[x][y]));
+					gravityFieldY[x][y] = Math.max(-GRAVITY_MAX_FORCE, Math.min(GRAVITY_MAX_FORCE, gravityFieldY[x][y]));
+				}
+			}
+		}
+		
+		// Apply Newtonian gravity to a pixel
+		function applyNewtonianGravity(pixel) {
+			if (!gravityFieldX || !gravityFieldY || !settings.advancedPhysics) return;
+			if (!elements[pixel.element].newtonianGravity) return;
+			
+			const gridX = Math.floor(pixel.x / GRAVITY_CELL_SIZE);
+			const gridY = Math.floor(pixel.y / GRAVITY_CELL_SIZE);
+			
+			if (gridX < 0 || gridX >= gravityGridWidth || gridY < 0 || gridY >= gravityGridHeight) return;
+			
+			// Apply gravitational acceleration
+			pixel.vx += gravityFieldX[gridX][gridY];
+			pixel.vy += gravityFieldY[gridX][gridY];
 		}
 		
 		// Apply air velocity to particles (drag force)
@@ -16874,6 +17017,11 @@ behaviorRules = {
 			if (settings.advancedPhysics && pressureGrid) {
 				updatePressureGrid();
 			}
+			
+			// Update gravity field if advanced physics is enabled
+			if (settings.advancedPhysics && gravityFieldX) {
+				updateGravityField();
+			}
 
 			var newCurrentPixels = currentPixels.slice();
 			shuffleArray(newCurrentPixels);
@@ -16899,6 +17047,7 @@ behaviorRules = {
 					
 					// ENHANCED PHYSICS: Apply velocity-based movement
 					if (settings.advancedPhysics && pixel.vx !== undefined) {
+						applyNewtonianGravity(pixel);  // Apply gravitational attraction
 						checkParticleCollision(pixel);  // Check for inter-particle collisions
 						applyVelocity(pixel);
 						applyAirDrag(pixel);  // Air affects particle movement
