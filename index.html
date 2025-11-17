@@ -17167,7 +17167,33 @@ behaviorRules = {
 				viewInfo[n].onSelect(ctx);
 			}
 			view = n;
+			updateViewButtons();
 		}
+		
+		// Update view button states to show which view is active
+		function updateViewButtons() {
+			// Safety check: only run if DOM is ready and buttons exist
+			if (typeof document === 'undefined' || !document.getElementById) return;
+			
+			const viewButtons = {
+				1: document.getElementById("viewNormalButton"),
+				2: document.getElementById("viewThermalButton"),
+				3: document.getElementById("viewBasicButton"),
+				4: document.getElementById("viewStreakButton")
+			};
+			
+			// Update button states
+			for (let viewNum in viewButtons) {
+				if (viewButtons[viewNum]) {
+					if (parseInt(viewNum) === view) {
+						viewButtons[viewNum].setAttribute("on", "true");
+					} else {
+						viewButtons[viewNum].setAttribute("on", "false");
+					}
+				}
+			}
+		}
+		
 		function centerMouse() {
 			mousePos = {x:width/2,y:height/2};
 		}
@@ -20021,7 +20047,7 @@ window.onload = function() {
 			<div id="stats"></div>
 			<div id="controls">
 				<div id="toolControls">
-					<button id="shiftButton" title="Toggle Shift key" class="controlButton" onclick='toggleShift();focusGame();' on="false" style="display:none">↑</button><button id="pauseButton" title="Pause/play the simulation" class="controlButton" onclick='togglePause();focusGame();' on="false">Pause</button><button id="frameButton" title="Pause and play one frame" class="controlButton" onclick='doFrame();focusGame();' on="false">&gt;</button><button id="sizeDownButton" title="Decrease the brush size" class="controlButton" onclick="mouseSize -= shiftDown?mouseSize-1:2;checkMouseSize(true);centerMouse();focusGame();">-</button><button id="sizeUpButton" title="Increase the brush size" class="controlButton" onclick="mouseSize += shiftDown?14:2;checkMouseSize(true);centerMouse();focusGame();">+</button><button id="resetButton" title="Clear the entire scene" class="controlButton" onclick="resetPrompt();">Reset</button><button id="replaceButton" title="Override existing pixels when placing" class="controlButton" onclick='if (mode == "replace") {mode = null;this.setAttribute("on","false");}else {mode = "replace";this.setAttribute("on","true");};focusGame();' on="false">Replace</button><button id="elemSelectButton" title="Select an element by name" class="controlButton" onclick='chooseElementPrompt();'>E</button><button id="tpsButton" title="Change the simulation Ticks Per Second (TPS)" class="controlButton" onclick='tpsPrompt()'>Tps</button><!--<button id="hideButton" title="Stops updating the scene to allow more resources towards simulation" class="controlButton" onclick='if (hiding) {hiding = false;this.setAttribute("on","false");}else {hiding = true;this.setAttribute("on","true");};focusGame();' on="false">Hide</button>--><button id="infoButton" title="Brings up the element info screen" class="controlButton" onclick='if (showingMenu!="info"){closeMenu();showInfo("")}else{closeMenu()};' on="false">Info</button><button id="savesButton" title="Brings up the Save & Load menu" class="controlButton" onclick='if (showingMenu!="saves"){closeMenu();showSaves()}else{closeMenu()};' on="false">Saves</button><button id="modsButton" title="Brings up the Mod Manager" class="controlButton" onclick='if (showingMenu!="mods"){closeMenu();showModManager()}else{closeMenu()};' on="false">Mods</button><button id="settingsButton" title="Brings up the settings screen" class="controlButton" onclick='if (showingMenu!="settings"){closeMenu();showSettings()}else{closeMenu()};' on="false">Settings</button>
+					<button id="shiftButton" title="Toggle Shift key" class="controlButton" onclick='toggleShift();focusGame();' on="false" style="display:none">↑</button><button id="pauseButton" title="Pause/play the simulation" class="controlButton" onclick='togglePause();focusGame();' on="false">Pause</button><button id="frameButton" title="Pause and play one frame" class="controlButton" onclick='doFrame();focusGame();' on="false">&gt;</button><button id="sizeDownButton" title="Decrease the brush size" class="controlButton" onclick="mouseSize -= shiftDown?mouseSize-1:2;checkMouseSize(true);centerMouse();focusGame();">-</button><button id="sizeUpButton" title="Increase the brush size" class="controlButton" onclick="mouseSize += shiftDown?14:2;checkMouseSize(true);centerMouse();focusGame();">+</button><button id="resetButton" title="Clear the entire scene" class="controlButton" onclick="resetPrompt();">Reset</button><button id="replaceButton" title="Override existing pixels when placing" class="controlButton" onclick='if (mode == "replace") {mode = null;this.setAttribute("on","false");}else {mode = "replace";this.setAttribute("on","true");};focusGame();' on="false">Replace</button><button id="elemSelectButton" title="Select an element by name" class="controlButton" onclick='chooseElementPrompt();'>E</button><button id="tpsButton" title="Change the simulation Ticks Per Second (TPS)" class="controlButton" onclick='tpsPrompt()'>Tps</button><!--<button id="hideButton" title="Stops updating the scene to allow more resources towards simulation" class="controlButton" onclick='if (hiding) {hiding = false;this.setAttribute("on","false");}else {hiding = true;this.setAttribute("on","true");};focusGame();' on="false">Hide</button>--><button id="infoButton" title="Brings up the element info screen" class="controlButton" onclick='if (showingMenu!="info"){closeMenu();showInfo("")}else{closeMenu()};' on="false">Info</button><button id="savesButton" title="Brings up the Save & Load menu" class="controlButton" onclick='if (showingMenu!="saves"){closeMenu();showSaves()}else{closeMenu()};' on="false">Saves</button><button id="modsButton" title="Brings up the Mod Manager" class="controlButton" onclick='if (showingMenu!="mods"){closeMenu();showModManager()}else{closeMenu()};' on="false">Mods</button><button id="settingsButton" title="Brings up the settings screen" class="controlButton" onclick='if (showingMenu!="settings"){closeMenu();showSettings()}else{closeMenu()};' on="false">Settings</button><button id="viewNormalButton" title="Normal View (1)" class="controlButton viewButton" onclick='setView(1);focusGame();' on="true">Normal</button><button id="viewThermalButton" title="Thermal View (2)" class="controlButton viewButton" onclick='setView(2);focusGame();' on="false">Thermal</button><button id="viewBasicButton" title="Basic View (3)" class="controlButton viewButton" onclick='setView(3);focusGame();' on="false">Basic</button><button id="viewStreakButton" title="Streak View (4)" class="controlButton viewButton" onclick='setView(4);focusGame();' on="false">Streak</button>
 				</div>
 				<script>
 					// if it is the 1st of April, add a rainbow-colored button
