@@ -1746,8 +1746,15 @@ SEEDRISE: function(pixel) {
 },
 "fire": {
 	color: ["#ff6b21","#ffa600","#ff4000"],
+	lifeKill: true,  // Die when life reaches 0
 	tick: function(pixel){
 		if (pixel.start === pixelTicks) {return}
+		
+		// Initialize life if not set (for existing fire pixels or direct placement)
+		if (pixel.life === undefined || pixel.life === 0) {
+			pixel.life = Math.floor(Math.random() * 50) + 50;  // 50-100 ticks
+		}
+		
 		let move1Spots = adjacentCoords.slice(0);
 		let moved = false;
 		for (var i = 0; i < move1Spots.length; i++) {
@@ -1772,6 +1779,7 @@ SEEDRISE: function(pixel) {
 			doAirDensity(pixel);
 			doBurning(pixel);
 
+			// Legacy fallback for when burn setting is off
 			if (settings.burn===0 && (pixelTicks-pixel.start > 70) && Math.random() < 0.1) { changePixel(pixel,"smoke") }
 		}
 	},
@@ -16547,6 +16555,16 @@ behaviorRules = {
 				// ENHANCED PHYSICS: Enhanced heat transfer
 				if (settings.advancedPhysics) {
 					enhancedHeatTransfer(pixel);
+				}
+				
+				// LIFE/DECAY SYSTEM: Auto-decrement life and handle death
+				if (pixel.life > 0) {
+					pixel.life--;
+					// If life reaches 0 and element has lifeKill property, delete pixel
+					if (pixel.life === 0 && elements[pixel.element].lifeKill) {
+						deletePixel(pixel.x, pixel.y);
+						continue;
+					}
 				}
 				
 				if (elements[pixel.element].tick) { // Run tick function if it exists
