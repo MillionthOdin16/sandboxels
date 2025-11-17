@@ -1091,7 +1091,8 @@ SEEDRISE: function(pixel) {
 	category: "land",
 	state: "solid",
 	density: 1602,
-	heatCapacity: 0.835
+	heatCapacity: 0.835,
+	collision: 0.3  // Bouncy sand particles
 },
 "water": {
 	color: "#2167ff",
@@ -2766,7 +2767,8 @@ SEEDRISE: function(pixel) {
 	stateHigh: "fire",
 	state: "solid",
 	density: 1490,
-	airDrag: 0.05  // Light particles affected by air
+	airDrag: 0.05,  // Light particles affected by air
+	collision: 0.4  // Bouncy dust particles
 },
 "void": {
 	color: "#262626",
@@ -14243,6 +14245,78 @@ function langKey(key,fallback,template) {
 			pixel.vy += airVelocityY[gridX][gridY] * airDragCoeff;
 		}
 		
+		// COLLISION & MOMENTUM SYSTEM - Inter-particle collision detection
+		function checkParticleCollision(pixel) {
+			if (!settings.advancedPhysics || !pixel.vx || !pixel.vy) return;
+			if (!elements[pixel.element].collision) return;  // Only if element can collide
+			
+			// Check for nearby moving particles
+			for (let dx = -1; dx <= 1; dx++) {
+				for (let dy = -1; dy <= 1; dy++) {
+					if (dx === 0 && dy === 0) continue;
+					
+					const nx = pixel.x + dx;
+					const ny = pixel.y + dy;
+					
+					if (!isEmpty(nx, ny, true)) {
+						const neighbor = pixelMap[nx][ny];
+						
+						// Check if neighbor also has collision enabled
+						if (!neighbor || !elements[neighbor.element].collision) continue;
+						if (!neighbor.vx && !neighbor.vy) continue;  // Neighbor not moving
+						
+						// Calculate relative velocity
+						const relVx = pixel.vx - (neighbor.vx || 0);
+						const relVy = pixel.vy - (neighbor.vy || 0);
+						
+						// Only collide if particles are moving toward each other
+						const approachVelocity = relVx * dx + relVy * dy;
+						if (approachVelocity <= 0) continue;  // Moving away or parallel
+						
+						// Elastic collision with momentum conservation
+						const mass1 = pixel.mass || 1;
+						const mass2 = neighbor.mass || 1;
+						const totalMass = mass1 + mass2;
+						
+						// Get collision restitution (bounciness)
+						const restitution = Math.min(
+							elements[pixel.element].collision || 0.5,
+							elements[neighbor.element].collision || 0.5
+						);
+						
+						// Calculate collision normal (direction from pixel to neighbor)
+						const dist = Math.sqrt(dx*dx + dy*dy);
+						const nx_norm = dx / dist;
+						const ny_norm = dy / dist;
+						
+						// Relative velocity along collision normal
+						const vn = relVx * nx_norm + relVy * ny_norm;
+						
+						// Impulse magnitude
+						const impulse = (1 + restitution) * vn / totalMass;
+						
+						// Apply impulse (change velocities)
+						pixel.vx -= impulse * mass2 * nx_norm;
+						pixel.vy -= impulse * mass2 * ny_norm;
+						
+						if (neighbor.vx !== undefined && neighbor.vy !== undefined) {
+							neighbor.vx += impulse * mass1 * nx_norm;
+							neighbor.vy += impulse * mass1 * ny_norm;
+						}
+						
+						// Heat generation from collision (kinetic energy loss)
+						if (approachVelocity > 2) {
+							const heatGenerated = approachVelocity * 0.5;
+							pixel.temp += heatGenerated;
+							neighbor.temp += heatGenerated;
+						}
+						
+						return;  // Only handle one collision per tick
+					}
+				}
+			}
+		}
+		
 		// Apply velocity-based movement to a pixel
 		function applyVelocity(pixel) {
 			if (!settings.advancedPhysics || pixel.vx === undefined) return;
@@ -16825,6 +16899,7 @@ behaviorRules = {
 					
 					// ENHANCED PHYSICS: Apply velocity-based movement
 					if (settings.advancedPhysics && pixel.vx !== undefined) {
+						checkParticleCollision(pixel);  // Check for inter-particle collisions
 						applyVelocity(pixel);
 						applyAirDrag(pixel);  // Air affects particle movement
 						if (elements[pixel.element].state === "liquid") {
