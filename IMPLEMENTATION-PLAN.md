@@ -645,12 +645,14 @@ function checkPressureTransitions(pixel) {
   - [x] Performance acceptable
   - **Commit:** 6d71407
   
-- [ ] Feature 5: Pressure Transitions - WEEK 9 (NEXT)
-  - [ ] Pressure tracking working
-  - [ ] State transitions implemented
-  - [ ] Elements updated
+- [x] Feature 5: Pressure Transitions - WEEK 9 ✅ **NEW!**
+  - [x] Pressure tracking working
+  - [x] State transitions implemented
+  - [x] Elements updated (water, CO2)
+  - [x] Boiling point adjusts with pressure
+  - **Commit:** d2b5124
   
-- [ ] Feature 6: Collision/Momentum - WEEKS 10-11
+- [ ] Feature 6: Collision/Momentum - WEEKS 10-11 (NEXT)
   - [ ] Collision detection working
   - [ ] Momentum transfer correct
   - [ ] Bouncing implemented
