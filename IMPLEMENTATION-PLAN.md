@@ -611,38 +611,46 @@ function checkPressureTransitions(pixel) {
 
 ### Progress Checklist
 
-#### Phase 1: Foundation (Weeks 1-8)
-- [ ] Feature 1: Material Memory (ctype) - WEEKS 1-2
-  - [ ] Core system implemented
-  - [ ] Lava uses ctype
-  - [ ] Tests passing
-  - [ ] Documented
+#### Phase 1: Foundation (Weeks 1-8) - ✅ COMPLETE!
+- [x] Feature 1: Material Memory (ctype) - WEEK 1 ✅
+  - [x] Core system implemented
+  - [x] Lava uses ctype
+  - [x] Tests passing
+  - [x] Documented
+  - **Commit:** bbdf6ca
   
-- [ ] Feature 2: Life/Decay System - WEEK 3
-  - [ ] Core system implemented
-  - [ ] Fire uses life
-  - [ ] Explosives use life
-  - [ ] Tests passing
+- [x] Feature 2: Life/Decay System - WEEK 2 ✅
+  - [x] Core system implemented
+  - [x] Fire uses life
+  - [x] Explosives use life
+  - [x] Tests passing
+  - **Commit:** e660f47
   
-- [ ] Feature 3: Enhanced Electrical - WEEKS 4-5
-  - [ ] Spark element created
-  - [ ] Battery element created
-  - [ ] Switch element created
-  - [ ] Simple circuits work
+- [x] Feature 3: Enhanced Electrical - WEEKS 3-4 ✅
+  - [x] Spark element created
+  - [x] Battery element updated
+  - [x] Switch element created
+  - [x] Insulated wire created
+  - [x] Simple circuits work
+  - **Commit:** 6f54ebc
 
-#### Phase 2: Advanced Physics (Weeks 9-16)
-- [ ] Feature 4: Air Pressure - WEEKS 6-9
-  - [ ] Grid infrastructure complete
-  - [ ] Particle integration working
-  - [ ] Explosions create shockwaves
-  - [ ] Performance acceptable
+#### Phase 2: Advanced Physics (Weeks 9-16) - IN PROGRESS
+- [x] Feature 4: Air Pressure & Velocity - WEEKS 5-8 ✅ **CRITICAL**
+  - [x] Grid infrastructure complete
+  - [x] Air velocity field added
+  - [x] Pressure gradient → velocity
+  - [x] Velocity divergence → pressure
+  - [x] Explosion pressure injection
+  - [x] Particle air drag
+  - [x] Performance acceptable
+  - **Commit:** 6d71407
   
-- [ ] Feature 5: Pressure Transitions - WEEK 10
+- [ ] Feature 5: Pressure Transitions - WEEK 9 (NEXT)
   - [ ] Pressure tracking working
   - [ ] State transitions implemented
   - [ ] Elements updated
   
-- [ ] Feature 6: Collision/Momentum - WEEKS 11-12
+- [ ] Feature 6: Collision/Momentum - WEEKS 10-11
   - [ ] Collision detection working
   - [ ] Momentum transfer correct
   - [ ] Bouncing implemented
