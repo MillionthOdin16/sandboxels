@@ -2476,6 +2476,177 @@ SEEDRISE: function(pixel) {
 	conduct: 0,  // Will be dynamically checked based on tmp in spark propagation
 	hardness: 0.5
 },
+"nscn": {
+	color: "#4040ff",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// N-type semiconductor
+		// Conducts when NOT receiving spark from adjacent PSCN
+		pixel.conduct = 1;  // Default: conductive
+		
+		// Check for adjacent PSCN with spark
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element === "pscn") {
+					// Check if PSCN is sparked
+					for (let j = 0; j < adjacentCoords.length; j++) {
+						let coord2 = adjacentCoords[j];
+						let x2 = neighbor.x + coord2[0];
+						let y2 = neighbor.y + coord2[1];
+						if (!isEmpty(x2, y2, true) && pixelMap[x2][y2].element === "spark") {
+							pixel.conduct = 0;  // Turn off when PSCN sparked
+							return;
+						}
+					}
+				}
+			}
+		}
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.6,
+	state: "solid",
+	hidden: false
+},
+"pscn": {
+	color: "#ff4040",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// P-type semiconductor
+		// Allows spark to pass through when sparked
+		pixel.conduct = 0;  // Default: not conductive
+		
+		// Check for adjacent sparks
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element === "spark") {
+					pixel.conduct = 1;  // Turn on when sparked
+					return;
+				}
+			}
+		}
+	},
+	category: "machines",
+	conduct: 0,
+	hardness: 0.6,
+	state: "solid",
+	hidden: false
+},
+"ntct": {
+	color: "#8080ff",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// N-type transistor
+		// Conducts when temperature is LOW
+		if (pixel.temp < 100) {
+			pixel.conduct = 1;
+		} else {
+			pixel.conduct = 0;
+		}
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.6,
+	state: "solid",
+	hidden: false
+},
+"ptct": {
+	color: "#ff8080",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// P-type transistor
+		// Conducts when temperature is HIGH
+		if (pixel.temp > 100) {
+			pixel.conduct = 1;
+		} else {
+			pixel.conduct = 0;
+		}
+	},
+	category: "machines",
+	conduct: 0,
+	hardness: 0.6,
+	state: "solid",
+	hidden: false
+},
+"wifi": {
+	color: "#40ffc0",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// WIFI transmits spark wirelessly to other WIFI elements on same channel
+		// Channel stored in tmp (0-15)
+		if (pixel.tmp === undefined) {
+			pixel.tmp = 0;  // Default channel
+		}
+		
+		// Check if this WIFI is sparked
+		let isActivated = false;
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element === "spark") {
+					isActivated = true;
+					break;
+				}
+			}
+		}
+		
+		// If activated, transmit to all WIFI on same channel
+		if (isActivated) {
+			// Find all other WIFI elements
+			for (let wx = 0; wx < width; wx++) {
+				for (let wy = 0; wy < height; wy++) {
+					if (!isEmpty(wx, wy, true)) {
+						let otherPixel = pixelMap[wx][wy];
+						if (otherPixel && otherPixel.element === "wifi" && 
+							otherPixel.tmp === pixel.tmp && 
+							(otherPixel.x !== pixel.x || otherPixel.y !== pixel.y)) {
+							// Transmit to this WIFI - create spark nearby
+							for (let j = 0; j < adjacentCoords.length; j++) {
+								let coord = adjacentCoords[j];
+								let tx = wx + coord[0];
+								let ty = wy + coord[1];
+								
+								if (!isEmpty(tx, ty, true)) {
+									let target = pixelMap[tx][ty];
+									if (target && elements[target.element].conduct && target.element !== "spark") {
+										createPixel("spark", tx, ty);
+										return;  // Only spark once per activation
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	tool: function(pixel) {
+		// Click to change channel
+		pixel.tmp = (pixel.tmp + 1) % 16;
+		// Visual feedback - cycle color hue
+		const hue = (pixel.tmp * 22.5) % 360;
+		pixel.color = `hsl(${hue}, 100%, 62%)`;
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.5,
+	state: "solid",
+	hidden: false
+},
 "cloner": {
 	color: "#dddd00",
 	behavior: behaviors.CLONER,
