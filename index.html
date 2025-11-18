@@ -2682,6 +2682,253 @@ SEEDRISE: function(pixel) {
 	category:"machines",
 	darkText: true,
 },
+"temp_sensor": {
+	color: "#ff6600",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// Temperature sensor - activates spark when temperature exceeds threshold
+		// Threshold stored in tmp (default 100°C)
+		if (pixel.tmp === undefined) {
+			pixel.tmp = 100;  // Default threshold
+		}
+		
+		// Check adjacent pixels for high temperature
+		let highTemp = false;
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.temp !== undefined && neighbor.temp > pixel.tmp) {
+					highTemp = true;
+					break;
+				}
+			}
+		}
+		
+		// Create spark if temperature exceeded
+		if (highTemp && pixelTicks % 3 === 0) {
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					if (neighbor && elements[neighbor.element].conduct && neighbor.element !== "spark") {
+						createPixel("spark", x, y);
+						return;
+					}
+				}
+			}
+		}
+		
+		// Visual feedback - color based on state
+		pixel.color = highTemp ? "#ff0000" : "#ff6600";
+	},
+	tool: function(pixel) {
+		// Click to adjust threshold (cycle: 50, 100, 200, 500)
+		const thresholds = [50, 100, 200, 500];
+		const currentIndex = thresholds.indexOf(pixel.tmp);
+		pixel.tmp = thresholds[(currentIndex + 1) % thresholds.length];
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.6,
+	hidden: false
+},
+"pressure_sensor": {
+	color: "#00ccff",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// Pressure sensor - activates when air pressure exceeds threshold
+		// Threshold stored in tmp (default 2.0)
+		if (pixel.tmp === undefined) {
+			pixel.tmp = 2.0;  // Default threshold (atmospheres)
+		}
+		
+		// Get pressure at this location
+		const gridX = Math.floor(pixel.x / pressureGridCellSize);
+		const gridY = Math.floor(pixel.y / pressureGridCellSize);
+		
+		let pressure = 1.0;  // Default atmospheric
+		if (pressureGrid && gridX >= 0 && gridX < pressureGridWidth && 
+			gridY >= 0 && gridY < pressureGridHeight) {
+			pressure = pressureGrid[gridX][gridY];
+		}
+		
+		// Check if pressure exceeded
+		const highPressure = pressure > pixel.tmp;
+		
+		// Create spark if pressure exceeded
+		if (highPressure && pixelTicks % 3 === 0) {
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					if (neighbor && elements[neighbor.element].conduct && neighbor.element !== "spark") {
+						createPixel("spark", x, y);
+						return;
+					}
+				}
+			}
+		}
+		
+		// Visual feedback
+		pixel.color = highPressure ? "#0000ff" : "#00ccff";
+	},
+	tool: function(pixel) {
+		// Click to adjust threshold (cycle: 1.5, 2.0, 3.0, 5.0)
+		const thresholds = [1.5, 2.0, 3.0, 5.0];
+		let currentVal = pixel.tmp || 2.0;
+		const currentIndex = thresholds.indexOf(currentVal);
+		pixel.tmp = thresholds[(currentIndex + 1) % thresholds.length];
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.6,
+	hidden: false
+},
+"clone": {
+	color: "#ffff00",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// CLONE element - produces copies of stored element (in ctype)
+		// Click to set which element to clone
+		// Continuously produces element when sparked or powered
+		
+		if (!pixel.ctype) {
+			pixel.ctype = "sand";  // Default to sand
+		}
+		
+		// Check if activated by spark or charge
+		let isActivated = false;
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && (neighbor.element === "spark" || neighbor.charge)) {
+					isActivated = true;
+					break;
+				}
+			}
+		}
+		
+		// Produce element every few ticks when activated
+		if (isActivated && pixelTicks % 5 === 0) {
+			// Find empty adjacent spot
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (isEmpty(x, y, true)) {
+					createPixel(pixel.ctype, x, y);
+					return;
+				}
+			}
+		}
+	},
+	tool: function(pixel) {
+		// Click to select element to clone from adjacent pixels
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element !== "clone") {
+					pixel.ctype = neighbor.element;
+					// Visual feedback - copy neighbor color
+					pixel.color = neighbor.color || elements[neighbor.element].color;
+					return;
+				}
+			}
+		}
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.8,
+	hidden: false
+},
+"converter": {
+	color: "#ff00ff",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// CONVERTER - converts adjacent elements to stored type (in ctype)
+		// Click to set conversion target
+		
+		if (!pixel.ctype) {
+			pixel.ctype = "sand";  // Default conversion
+		}
+		
+		// Check if activated by spark
+		let isActivated = false;
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element === "spark") {
+					isActivated = true;
+					break;
+				}
+			}
+		}
+		
+		// Convert adjacent elements when activated
+		if (isActivated) {
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					if (neighbor && neighbor.element !== "converter" && 
+						neighbor.element !== pixel.ctype &&
+						neighbor.element !== "spark") {
+						changePixel(neighbor, pixel.ctype);
+						return;  // Convert one per tick
+					}
+				}
+			}
+		}
+	},
+	tool: function(pixel) {
+		// Click to select target element from adjacent pixels
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element !== "converter") {
+					pixel.ctype = neighbor.element;
+					// Visual feedback
+					pixel.color = neighbor.color || elements[neighbor.element].color;
+					return;
+				}
+			}
+		}
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.8,
+	hidden: false
+},
 "heater": {
 	color: "#881111",
 	behavior: [
