@@ -1091,7 +1091,9 @@ SEEDRISE: function(pixel) {
 	category: "land",
 	state: "solid",
 	density: 1602,
-	heatCapacity: 0.835
+	heatCapacity: 0.835,
+	collision: 0.3,  // Bouncy sand particles
+	newtonianGravity: true  // Affected by gravity field
 },
 "water": {
 	color: "#2167ff",
@@ -1100,6 +1102,9 @@ SEEDRISE: function(pixel) {
 	stateHigh: "steam",
 	tempLow: 0,
 	stateLow: "ice",
+	// Pressure transitions: Water boils at lower temp under low pressure
+	pressureLow: 0.7,  // Below 0.7 atm, easier to boil (like high altitude)
+	// Under vacuum, water boils even at room temperature
 	category: "liquids",
 	heatCapacity: 4.184,
 	reactions: {
@@ -1455,7 +1460,9 @@ SEEDRISE: function(pixel) {
 	stateLow: "permafrost",
 	category:"land",
 	state: "solid",
-	density: 1220
+	density: 1220,
+	collision: 0.2,  // Dirt particles collide
+	newtonianGravity: true  // Affected by gravity field
 },
 "mud": {
 	color: "#382417",
@@ -1746,8 +1753,15 @@ SEEDRISE: function(pixel) {
 },
 "fire": {
 	color: ["#ff6b21","#ffa600","#ff4000"],
+	lifeKill: true,  // Die when life reaches 0
 	tick: function(pixel){
 		if (pixel.start === pixelTicks) {return}
+		
+		// Initialize life if not set (for existing fire pixels or direct placement)
+		if (pixel.life === undefined || pixel.life === 0) {
+			pixel.life = Math.floor(Math.random() * 50) + 50;  // 50-100 ticks
+		}
+		
 		let move1Spots = adjacentCoords.slice(0);
 		let moved = false;
 		for (var i = 0; i < move1Spots.length; i++) {
@@ -1772,6 +1786,7 @@ SEEDRISE: function(pixel) {
 			doAirDensity(pixel);
 			doBurning(pixel);
 
+			// Legacy fallback for when burn setting is off
 			if (settings.burn===0 && (pixelTicks-pixel.start > 70) && Math.random() < 0.1) { changePixel(pixel,"smoke") }
 		}
 	},
@@ -1869,7 +1884,8 @@ SEEDRISE: function(pixel) {
 	conduct: 0.002,
 	stain: -0.05,
 	alias: "water vapor",
-	extinguish: true
+	extinguish: true,
+	airDrag: 0.02  // Light gas affected by air currents
 },
 "ice": {
 	color: "#b2daeb",
@@ -1921,7 +1937,10 @@ SEEDRISE: function(pixel) {
 	stateHigh: "water",
 	category: "land",
 	state: "solid",
-	density: 100
+	density: 100,
+	airDrag: 0.06,  // Very light, easily blown
+	collision: 0.1,  // Soft collisions
+	newtonianGravity: true  // Affected by gravity field
 },
 "slush": {
 	color: "#81bcd4",
@@ -1993,7 +2012,8 @@ SEEDRISE: function(pixel) {
 	state: "gas",
 	density: 0.1,
 	stain: 0.075,
-	noMix: true
+	noMix: true,
+	airDrag: 0.03  // Smoke dispersed by air
 },
 "magma": {
 	color: ["#ff6f00","#ff8c00","#ff4d00"],
@@ -2007,7 +2027,7 @@ SEEDRISE: function(pixel) {
 	},
 	temp: 1200,
 	tempLow: 800,
-	stateLow: ["basalt","basalt","basalt","rock"],
+	stateLow: ["basalt","basalt","basalt","rock"],  // Default if no ctype
 	viscosity: 10000,
 	category: "liquids",
 	state: "liquid",
@@ -2087,7 +2107,20 @@ SEEDRISE: function(pixel) {
 	heatCapacity: 0.84,
 	breakInto: "glass_shard",
 	noMix: true,
-	grain: 0
+	grain: 0,
+	refraction: 1.5  // Refractive index for photons
+},
+"prism": {
+	color: "#a8d8e8",
+	behavior: behaviors.WALL,
+	category: "solids",
+	state: "solid",
+	density: 2500,
+	tempHigh: 1500,
+	stateHigh: "molten_glass",
+	refraction: 2.4,  // High dispersion for photons
+	noMix: true,
+	hidden: false
 },
 "molten_glass": {
 	reactions: {
@@ -2298,7 +2331,9 @@ SEEDRISE: function(pixel) {
 	state: "solid",
 	density: 2160,
 	fireColor: "#F1E906",
-	alias: "sodium chloride"
+	alias: "sodium chloride",
+	collision: 0.3,  // Salt crystals bounce
+	newtonianGravity: true  // Affected by gravity field
 },
 "molten_salt": {
 	conduct: 0.1,
@@ -2366,16 +2401,251 @@ SEEDRISE: function(pixel) {
 },
 "battery": {
 	color: "#9c6c25",
-	behavior: [
-		"XX|SH|XX", // shocks (adds charge)
-		"SH|XX|SH",
-		"XX|SH|XX",
-	],
+	tick: function(pixel) {
+		// Battery generates sparks continuously to adjacent conductors
+		if (pixelTicks % 3 === 0) {  // Every 3 ticks
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					// If neighbor is a conductor, create spark there
+					if (neighbor && elements[neighbor.element].conduct && neighbor.element !== "spark") {
+						if (Math.random() < 0.3) {  // 30% chance per conductor
+							createPixel("spark", x, y);
+						}
+					}
+				}
+			}
+		}
+	},
+	behavior: behaviors.WALL,
 	category: "machines",
 	tempHigh: 1455.5,
 	stateHigh: ["molten_steel","explosion","acid_gas"],
 	hardness: 0.8,
+	conduct: 1,  // Battery itself is conductive
 	breakInto: ["metal_scrap","acid"]
+},
+"insulated_wire": {
+	color: "#333333",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// Conducts electricity like wire but doesn't spark adjacent non-conductors
+		// The insulation prevents sparks from jumping to nearby elements
+	},
+	category: "machines",
+	conduct: 1,
+	insulate: true,
+	hardness: 0.3,
+	breakInto: "wire"
+},
+"switch": {
+	color: "#808080",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// Switch can be toggled on/off by right-clicking
+		// When on (tmp=1), it conducts. When off (tmp=0), it doesn't
+		// Update visual color based on state
+		if (pixel.tmp === 1) {
+			if (pixel.color !== "#00ff00") {
+				pixel.color = "#00ff00";
+			}
+		} else {
+			if (pixel.color !== "#808080") {
+				pixel.color = "#808080";
+			}
+		}
+	},
+	tool: function(pixel) {
+		// Toggle switch when clicked with the switch tool
+		pixel.tmp = pixel.tmp === 1 ? 0 : 1;
+		pixel.color = pixel.tmp === 1 ? "#00ff00" : "#808080";
+	},
+	onSelect: function(pixel) {
+		// Toggle switch on click in element selector
+		pixel.tmp = pixel.tmp === 1 ? 0 : 1;
+		pixel.color = pixel.tmp === 1 ? "#00ff00" : "#808080";
+	},
+	properties: {
+		tmp: 0  // 0 = off, 1 = on
+	},
+	category: "machines",
+	conduct: 0,  // Will be dynamically checked based on tmp in spark propagation
+	hardness: 0.5
+},
+"nscn": {
+	color: "#4040ff",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// N-type semiconductor
+		// Conducts when NOT receiving spark from adjacent PSCN
+		pixel.conduct = 1;  // Default: conductive
+		
+		// Check for adjacent PSCN with spark
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element === "pscn") {
+					// Check if PSCN is sparked
+					for (let j = 0; j < adjacentCoords.length; j++) {
+						let coord2 = adjacentCoords[j];
+						let x2 = neighbor.x + coord2[0];
+						let y2 = neighbor.y + coord2[1];
+						if (!isEmpty(x2, y2, true) && pixelMap[x2][y2].element === "spark") {
+							pixel.conduct = 0;  // Turn off when PSCN sparked
+							return;
+						}
+					}
+				}
+			}
+		}
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.6,
+	state: "solid",
+	hidden: false
+},
+"pscn": {
+	color: "#ff4040",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// P-type semiconductor
+		// Allows spark to pass through when sparked
+		pixel.conduct = 0;  // Default: not conductive
+		
+		// Check for adjacent sparks
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element === "spark") {
+					pixel.conduct = 1;  // Turn on when sparked
+					return;
+				}
+			}
+		}
+	},
+	category: "machines",
+	conduct: 0,
+	hardness: 0.6,
+	state: "solid",
+	hidden: false
+},
+"ntct": {
+	color: "#8080ff",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// N-type transistor
+		// Conducts when temperature is LOW
+		if (pixel.temp < 100) {
+			pixel.conduct = 1;
+		} else {
+			pixel.conduct = 0;
+		}
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.6,
+	state: "solid",
+	hidden: false
+},
+"ptct": {
+	color: "#ff8080",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// P-type transistor
+		// Conducts when temperature is HIGH
+		if (pixel.temp > 100) {
+			pixel.conduct = 1;
+		} else {
+			pixel.conduct = 0;
+		}
+	},
+	category: "machines",
+	conduct: 0,
+	hardness: 0.6,
+	state: "solid",
+	hidden: false
+},
+"wifi": {
+	color: "#40ffc0",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// WIFI transmits spark wirelessly to other WIFI elements on same channel
+		// Channel stored in tmp (0-15)
+		if (pixel.tmp === undefined) {
+			pixel.tmp = 0;  // Default channel
+		}
+		
+		// Check if this WIFI is sparked
+		let isActivated = false;
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element === "spark") {
+					isActivated = true;
+					break;
+				}
+			}
+		}
+		
+		// If activated, transmit to all WIFI on same channel
+		if (isActivated) {
+			// Find all other WIFI elements
+			for (let wx = 0; wx < width; wx++) {
+				for (let wy = 0; wy < height; wy++) {
+					if (!isEmpty(wx, wy, true)) {
+						let otherPixel = pixelMap[wx][wy];
+						if (otherPixel && otherPixel.element === "wifi" && 
+							otherPixel.tmp === pixel.tmp && 
+							(otherPixel.x !== pixel.x || otherPixel.y !== pixel.y)) {
+							// Transmit to this WIFI - create spark nearby
+							for (let j = 0; j < adjacentCoords.length; j++) {
+								let coord = adjacentCoords[j];
+								let tx = wx + coord[0];
+								let ty = wy + coord[1];
+								
+								if (!isEmpty(tx, ty, true)) {
+									let target = pixelMap[tx][ty];
+									if (target && elements[target.element].conduct && target.element !== "spark") {
+										createPixel("spark", tx, ty);
+										return;  // Only spark once per activation
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	tool: function(pixel) {
+		// Click to change channel
+		pixel.tmp = (pixel.tmp + 1) % 16;
+		// Visual feedback - cycle color hue
+		const hue = (pixel.tmp * 22.5) % 360;
+		pixel.color = `hsl(${hue}, 100%, 62%)`;
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.5,
+	state: "solid",
+	hidden: false
 },
 "cloner": {
 	color: "#dddd00",
@@ -2411,6 +2681,253 @@ SEEDRISE: function(pixel) {
 	movable: false,
 	category:"machines",
 	darkText: true,
+},
+"temp_sensor": {
+	color: "#ff6600",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// Temperature sensor - activates spark when temperature exceeds threshold
+		// Threshold stored in tmp (default 100°C)
+		if (pixel.tmp === undefined) {
+			pixel.tmp = 100;  // Default threshold
+		}
+		
+		// Check adjacent pixels for high temperature
+		let highTemp = false;
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.temp !== undefined && neighbor.temp > pixel.tmp) {
+					highTemp = true;
+					break;
+				}
+			}
+		}
+		
+		// Create spark if temperature exceeded
+		if (highTemp && pixelTicks % 3 === 0) {
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					if (neighbor && elements[neighbor.element].conduct && neighbor.element !== "spark") {
+						createPixel("spark", x, y);
+						return;
+					}
+				}
+			}
+		}
+		
+		// Visual feedback - color based on state
+		pixel.color = highTemp ? "#ff0000" : "#ff6600";
+	},
+	tool: function(pixel) {
+		// Click to adjust threshold (cycle: 50, 100, 200, 500)
+		const thresholds = [50, 100, 200, 500];
+		const currentIndex = thresholds.indexOf(pixel.tmp);
+		pixel.tmp = thresholds[(currentIndex + 1) % thresholds.length];
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.6,
+	hidden: false
+},
+"pressure_sensor": {
+	color: "#00ccff",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// Pressure sensor - activates when air pressure exceeds threshold
+		// Threshold stored in tmp (default 2.0)
+		if (pixel.tmp === undefined) {
+			pixel.tmp = 2.0;  // Default threshold (atmospheres)
+		}
+		
+		// Get pressure at this location
+		const gridX = Math.floor(pixel.x / pressureGridCellSize);
+		const gridY = Math.floor(pixel.y / pressureGridCellSize);
+		
+		let pressure = 1.0;  // Default atmospheric
+		if (pressureGrid && gridX >= 0 && gridX < pressureGridWidth && 
+			gridY >= 0 && gridY < pressureGridHeight) {
+			pressure = pressureGrid[gridX][gridY];
+		}
+		
+		// Check if pressure exceeded
+		const highPressure = pressure > pixel.tmp;
+		
+		// Create spark if pressure exceeded
+		if (highPressure && pixelTicks % 3 === 0) {
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					if (neighbor && elements[neighbor.element].conduct && neighbor.element !== "spark") {
+						createPixel("spark", x, y);
+						return;
+					}
+				}
+			}
+		}
+		
+		// Visual feedback
+		pixel.color = highPressure ? "#0000ff" : "#00ccff";
+	},
+	tool: function(pixel) {
+		// Click to adjust threshold (cycle: 1.5, 2.0, 3.0, 5.0)
+		const thresholds = [1.5, 2.0, 3.0, 5.0];
+		let currentVal = pixel.tmp || 2.0;
+		const currentIndex = thresholds.indexOf(currentVal);
+		pixel.tmp = thresholds[(currentIndex + 1) % thresholds.length];
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.6,
+	hidden: false
+},
+"clone": {
+	color: "#ffff00",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// CLONE element - produces copies of stored element (in ctype)
+		// Click to set which element to clone
+		// Continuously produces element when sparked or powered
+		
+		if (!pixel.ctype) {
+			pixel.ctype = "sand";  // Default to sand
+		}
+		
+		// Check if activated by spark or charge
+		let isActivated = false;
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && (neighbor.element === "spark" || neighbor.charge)) {
+					isActivated = true;
+					break;
+				}
+			}
+		}
+		
+		// Produce element every few ticks when activated
+		if (isActivated && pixelTicks % 5 === 0) {
+			// Find empty adjacent spot
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (isEmpty(x, y, true)) {
+					createPixel(pixel.ctype, x, y);
+					return;
+				}
+			}
+		}
+	},
+	tool: function(pixel) {
+		// Click to select element to clone from adjacent pixels
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element !== "clone") {
+					pixel.ctype = neighbor.element;
+					// Visual feedback - copy neighbor color
+					pixel.color = neighbor.color || elements[neighbor.element].color;
+					return;
+				}
+			}
+		}
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.8,
+	hidden: false
+},
+"converter": {
+	color: "#ff00ff",
+	behavior: behaviors.WALL,
+	tick: function(pixel) {
+		// CONVERTER - converts adjacent elements to stored type (in ctype)
+		// Click to set conversion target
+		
+		if (!pixel.ctype) {
+			pixel.ctype = "sand";  // Default conversion
+		}
+		
+		// Check if activated by spark
+		let isActivated = false;
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element === "spark") {
+					isActivated = true;
+					break;
+				}
+			}
+		}
+		
+		// Convert adjacent elements when activated
+		if (isActivated) {
+			for (let i = 0; i < adjacentCoords.length; i++) {
+				let coord = adjacentCoords[i];
+				let x = pixel.x + coord[0];
+				let y = pixel.y + coord[1];
+				
+				if (!isEmpty(x, y, true)) {
+					let neighbor = pixelMap[x][y];
+					if (neighbor && neighbor.element !== "converter" && 
+						neighbor.element !== pixel.ctype &&
+						neighbor.element !== "spark") {
+						changePixel(neighbor, pixel.ctype);
+						return;  // Convert one per tick
+					}
+				}
+			}
+		}
+	},
+	tool: function(pixel) {
+		// Click to select target element from adjacent pixels
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				if (neighbor && neighbor.element !== "converter") {
+					pixel.ctype = neighbor.element;
+					// Visual feedback
+					pixel.color = neighbor.color || elements[neighbor.element].color;
+					return;
+				}
+			}
+		}
+	},
+	category: "machines",
+	conduct: 1,
+	hardness: 0.8,
+	hidden: false
 },
 "heater": {
 	color: "#881111",
@@ -2645,7 +3162,9 @@ SEEDRISE: function(pixel) {
 	state: "solid",
 	density: 1680,
 	hardness: 0.2,
-	breakInto: "sand"
+	breakInto: "sand",
+	collision: 0.25,  // Gravel bounces slightly
+	newtonianGravity: true  // Affected by gravity field
 },
 "slime": {
 	color: "#81cf63",
@@ -2690,7 +3209,10 @@ SEEDRISE: function(pixel) {
 	tempHigh: 425,
 	stateHigh: "fire",
 	state: "solid",
-	density: 1490
+	density: 1490,
+	airDrag: 0.05,  // Light particles affected by air
+	collision: 0.4,  // Bouncy dust particles
+	newtonianGravity: true  // Affected by gravity field
 },
 "void": {
 	color: "#262626",
@@ -2711,6 +3233,34 @@ SEEDRISE: function(pixel) {
 	excludeRandom: true,
 	movable: false,
 	insulate: true
+},
+"black_hole": {
+	color: "#000000",
+	tick: function(pixel) {
+		// Black hole consumes nearby matter
+		for (var i = 0; i < adjacentCoords.length; i++) {
+			var x = pixel.x+adjacentCoords[i][0];
+			var y = pixel.y+adjacentCoords[i][1];
+			if (!isEmpty(x,y,true)) {
+				var newPixel = pixelMap[x][y];
+				if (elements[newPixel.element].hardness === 1) { continue; }
+				// Add mass to black hole from consumed matter
+				if (!pixel.consumedMass) pixel.consumedMass = 0;
+				pixel.consumedMass += (newPixel.mass || 1);
+				pixel.mass = 100 + pixel.consumedMass;  // Massive object
+				deletePixel(x,y);
+			}
+		}
+	},
+	category:"special",
+	hardness: 1,
+	excludeRandom: true,
+	movable: false,
+	insulate: true,
+	newtonianGravity: true,
+	properties: {
+		mass: 100  // Very massive
+	}
 },
 "sun": {
 	color: "#ffffbd",
@@ -4813,7 +5363,10 @@ SEEDRISE: function(pixel) {
 	density: 700,
 	tempHigh: 2000,
 	forceAutoGen: true,
-	stateHigh: ["molten_ash","smoke","smoke","smoke"]
+	stateHigh: ["molten_ash","smoke","smoke","smoke"],
+	airDrag: 0.04,  // Very light, easily blown by air
+	collision: 0.15,  // Very light collisions
+	newtonianGravity: true  // Affected by gravity field
 },
 "molten_ash": {
 	tempHigh: 3550,
@@ -4899,6 +5452,107 @@ SEEDRISE: function(pixel) {
 	ignoreAir: true,
 	insulate: true,
 	alias: "photon"
+},
+"photon": {
+	color: "#ffffff",
+	lifeKill: true,  // Die after lifetime expires
+	tick: function(pixel) {
+		// Initialize photon on first tick
+		if (pixel.life === undefined || pixel.life === 0) {
+			pixel.life = 100;  // Lifetime in ticks
+		}
+		
+		// Initialize wavelength (color) if not set - stored in ctype
+		if (pixel.ctype === undefined || pixel.ctype === null) {
+			// Random wavelength: 0=red, 1=orange, 2=yellow, 3=green, 4=cyan, 5=blue, 6=violet
+			pixel.ctype = Math.floor(Math.random() * 7);
+		}
+		
+		// Set color based on wavelength
+		const wavelengthColors = [
+			"#ff0000", "#ff8800", "#ffff00", "#00ff00", 
+			"#00ffff", "#0000ff", "#8800ff"
+		];
+		pixel.color = wavelengthColors[pixel.ctype % 7];
+		
+		// Initialize direction if not set
+		if (pixel.vx === undefined) {
+			const angle = Math.random() * Math.PI * 2;
+			pixel.vx = Math.cos(angle) * 4;  // High speed
+			pixel.vy = Math.sin(angle) * 4;
+		}
+		
+		// Move photon multiple pixels per tick (high speed)
+		const speed = 4;  // Pixels per tick
+		for (let step = 0; step < speed; step++) {
+			if (pixel.del) break;
+			
+			const nextX = Math.round(pixel.x + pixel.vx / speed);
+			const nextY = Math.round(pixel.y + pixel.vy / speed);
+			
+			// Check bounds
+			if (outOfBounds(nextX, nextY)) {
+				deletePixel(pixel.x, pixel.y);
+				return;
+			}
+			
+			// Check if next position is empty
+			if (isEmpty(nextX, nextY)) {
+				tryMove(pixel, nextX, nextY);
+			} else {
+				// Hit something - check for reflection/refraction
+				const hitPixel = pixelMap[nextX][nextY];
+				const hitElement = elements[hitPixel.element];
+				
+				// Glass/transparent materials - refraction
+				if (hitElement.refraction) {
+					// Simple refraction - change direction slightly
+					const refractIndex = hitElement.refraction || 1.5;
+					const angle = Math.atan2(pixel.vy, pixel.vx);
+					const newAngle = angle + (Math.random() - 0.5) * 0.3 * refractIndex;
+					pixel.vx = Math.cos(newAngle) * 4;
+					pixel.vy = Math.sin(newAngle) * 4;
+					
+					// Pass through if possible
+					if (tryMove(pixel, nextX, nextY)) {
+						// Moved through
+					} else {
+						// Couldn't move through, reflect instead
+						if (Math.abs(pixel.vx) > Math.abs(pixel.vy)) {
+							pixel.vx = -pixel.vx;
+						} else {
+							pixel.vy = -pixel.vy;
+						}
+					}
+				}
+				// Mirror/reflective materials - reflection
+				else if (hitElement.reflect) {
+					// Perfect reflection
+					if (Math.abs(pixel.vx) > Math.abs(pixel.vy)) {
+						pixel.vx = -pixel.vx;
+					} else {
+						pixel.vy = -pixel.vy;
+					}
+				}
+				// Absorbing materials - delete photon
+				else {
+					// Heat the material slightly
+					if (hitPixel.temp !== undefined) {
+						hitPixel.temp += 0.5;
+					}
+					deletePixel(pixel.x, pixel.y);
+					return;
+				}
+				break;  // Only process one collision per tick
+			}
+		}
+	},
+	category: "energy",
+	state: "gas",
+	density: 0,
+	ignoreAir: true,
+	insulate: true,
+	hidden: false
 },
 "liquid_light": {
 	color: "#bdbc9d",
@@ -5142,7 +5796,8 @@ SEEDRISE: function(pixel) {
 	stateLow: "liquid_oxygen",
 	state: "gas",
 	density: 1.292,
-	heatCapacity: 0.918
+	heatCapacity: 0.918,
+	airDrag: 0.015  // Light gas affected by air
 },
 "nitrogen": {
 	color: "#b8d1d4",
@@ -5157,7 +5812,8 @@ SEEDRISE: function(pixel) {
 	tempLow: -195.8,
 	stateLow: "liquid_nitrogen",
 	state: "gas",
-	density: 1.165
+	density: 1.165,
+	airDrag: 0.015  // Light gas affected by air
 },
 "helium": {
 	color: "#a69494",
@@ -5202,6 +5858,9 @@ SEEDRISE: function(pixel) {
 	category: "gases",
 	tempLow: -78.5,
 	stateLow: "dry_ice",
+	// Pressure transitions: CO2 sublimates at low pressure (Mars-like conditions)
+	pressureLow: 0.5,  // Below 0.5 atm, skip liquid phase (sublimation)
+	statePressureLow: "dry_ice",
 	state: "gas",
 	density: 1.977,
 	heatCapacity: 0.844,
@@ -7523,7 +8182,20 @@ SEEDRISE: function(pixel) {
 	density: 10497,
 	conduct: 0.99,
 	heatCapacity: 0.235,
-	hardness: 0.25
+	hardness: 0.25,
+	reflect: 0.95  // Highly reflective for photons
+},
+"mirror": {
+	color: "#e8e8e8",
+	behavior: behaviors.WALL,
+	category: "solids",
+	state: "solid",
+	density: 2500,
+	tempHigh: 1500,
+	stateHigh: "molten_glass",
+	reflect: 1.0,  // Perfect reflection for photons
+	noMix: true,
+	hidden: false
 },
 "tin": {
 	color: ["#9e9d98","#aeada4"],
@@ -11406,6 +12078,58 @@ SEEDRISE: function(pixel) {
 	ignoreConduct: ["shocker"],
 	alias: "electron"
 },
+"spark": {
+	color: "#ffff00",
+	lifeKill: true,  // Dies when life reaches 0
+	tick: function(pixel) {
+		// Initialize life if not set
+		if (!pixel.life) {
+			pixel.life = 2;  // Very short-lived (2 ticks)
+		}
+		
+		// Propagate spark to adjacent conductors
+		for (let i = 0; i < adjacentCoords.length; i++) {
+			let coord = adjacentCoords[i];
+			let x = pixel.x + coord[0];
+			let y = pixel.y + coord[1];
+			
+			if (!isEmpty(x, y, true)) {
+				let neighbor = pixelMap[x][y];
+				// Check if neighbor conducts electricity
+				// For switches, check if they're turned on (tmp === 1)
+				let canConduct = elements[neighbor.element].conduct;
+				if (neighbor.element === "switch" && neighbor.tmp !== 1) {
+					canConduct = false;  // Switch is OFF, don't conduct
+				}
+				
+				if (neighbor && canConduct) {
+					// Don't spark pixels that are already sparked or are insulators
+					if (neighbor.element !== "spark" && !neighbor.sparked) {
+						// Heat up the conductor
+						neighbor.temp += 10;
+						
+						// Mark as sparked this tick to prevent re-sparking
+						neighbor.sparked = pixelTicks;
+						
+						// Create spark at conductor location
+						if (Math.random() < 0.7) {  // 70% chance to propagate
+							createPixel("spark", x, y);
+						}
+					}
+				}
+			}
+		}
+		
+		// Spark heats surrounding area
+		doHeat(pixel);
+	},
+	temp: 1000,
+	category: "energy",
+	state: "gas",
+	density: 0,
+	ignoreAir: true,
+	excludeRandom: true
+},
 "uranium": {
 	color: ["#599e61","#364d3c","#494d4a","#6c8a42","#798d65","#b5e089"],
 	behavior: [
@@ -12339,7 +13063,9 @@ SEEDRISE: function(pixel) {
 	state: "solid",
 	density: 1700,
 	excludeRandom: true,
-	alias: "black powder"
+	alias: "black powder",
+	collision: 0.2,  // Gunpowder particles
+	newtonianGravity: true  // Affected by gravity field
 },
 "ember": {
 	color: ["#ffe985","#ffd885","#ffc285"],
@@ -13848,6 +14574,15 @@ function langKey(key,fallback,template) {
 					this.mass = elementInfo.density ? elementInfo.density / 1000 : 1;
 				}
 				
+				// MATERIAL MEMORY SYSTEM (ctype): Store element origin/state
+				// Used for: lava remembering source, cloning, filtering, etc.
+				this.ctype = null;  // Color/material type - remembers original element
+				this.tmp = 0;       // Temporary storage 1 - multipurpose counter/state
+				this.tmp2 = 0;      // Temporary storage 2 - additional state data
+				this.tmp3 = 0;      // Temporary storage 3 - extended storage
+				this.tmp4 = 0;      // Temporary storage 4 - extended storage
+				this.life = 0;      // Lifetime counter - used for decay, timers, burn duration
+				
 				pixelMap[x][y] = this;
 				if (airTemp !== 20) {pixelTempCheck(this); pixelTempCheck(this)}
 			}
@@ -13876,16 +14611,58 @@ function langKey(key,fallback,template) {
 		const GAS_CONSTANT = 0.08; // scaled ideal gas constant
 		const PRESSURE_FORCE_MULTIPLIER = 3.0; // pressure gradient force scaling
 		
+		// AIR VELOCITY FIELD - Simulates air/fluid motion from pressure gradients
+		var airVelocityX = null;  // Horizontal air velocity
+		var airVelocityY = null;  // Vertical air velocity
+		const AIR_VELOCITY_DAMPING = 0.98;  // Air resistance (realistic drag)
+		const AIR_VELOCITY_MAX = 5.0;  // Maximum air velocity (stability)
+		
+		// NEWTONIAN GRAVITY FIELD - Particle-to-particle gravitational attraction
+		var gravityFieldX = null;  // Gravity field X component
+		var gravityFieldY = null;  // Gravity field Y component
+		const GRAVITY_CONSTANT = 0.1;  // Gravitational constant (scaled)
+		const GRAVITY_CELL_SIZE = 8;  // Larger cells for performance
+		const GRAVITY_MAX_FORCE = 2.0;  // Maximum gravity force (stability)
+		var gravityGridWidth = 0;
+		var gravityGridHeight = 0;
+		
 		// Initialize pressure grid
 		function initPressureGrid() {
 			if (!settings.advancedPhysics) return;
 			pressureGridWidth = Math.ceil(width / PRESSURE_CELL_SIZE);
 			pressureGridHeight = Math.ceil(height / PRESSURE_CELL_SIZE);
+			
+			// Initialize pressure grid
 			pressureGrid = new Array(pressureGridWidth);
+			airVelocityX = new Array(pressureGridWidth);
+			airVelocityY = new Array(pressureGridWidth);
+			
 			for (let x = 0; x < pressureGridWidth; x++) {
 				pressureGrid[x] = new Array(pressureGridHeight);
+				airVelocityX[x] = new Array(pressureGridHeight);
+				airVelocityY[x] = new Array(pressureGridHeight);
+				
 				for (let y = 0; y < pressureGridHeight; y++) {
 					pressureGrid[x][y] = AMBIENT_PRESSURE;
+					airVelocityX[x][y] = 0;
+					airVelocityY[x][y] = 0;
+				}
+			}
+			
+			// Initialize gravity grid
+			gravityGridWidth = Math.ceil(width / GRAVITY_CELL_SIZE);
+			gravityGridHeight = Math.ceil(height / GRAVITY_CELL_SIZE);
+			
+			gravityFieldX = new Array(gravityGridWidth);
+			gravityFieldY = new Array(gravityGridWidth);
+			
+			for (let x = 0; x < gravityGridWidth; x++) {
+				gravityFieldX[x] = new Array(gravityGridHeight);
+				gravityFieldY[x] = new Array(gravityGridHeight);
+				
+				for (let y = 0; y < gravityGridHeight; y++) {
+					gravityFieldX[x][y] = 0;
+					gravityFieldY[x][y] = 0;
 				}
 			}
 		}
@@ -13988,6 +14765,260 @@ function langKey(key,fallback,template) {
 			for (let x = 0; x < pressureGridWidth; x++) {
 				for (let y = 0; y < pressureGridHeight; y++) {
 					pressureGrid[x][y] = newPressure[x][y];
+				}
+			}
+			
+			// UPDATE AIR VELOCITY FIELD from pressure gradients
+			updateAirVelocity();
+		}
+		
+		// Update air velocity based on pressure gradients (fluid dynamics)
+		function updateAirVelocity() {
+			if (!airVelocityX || !airVelocityY || !pressureGrid) return;
+			
+			// Step 1: Pressure gradient affects air velocity
+			for (let x = 1; x < pressureGridWidth - 1; x++) {
+				for (let y = 1; y < pressureGridHeight - 1; y++) {
+					// Calculate pressure gradient (force on air)
+					const gradX = (pressureGrid[x+1][y] - pressureGrid[x-1][y]) * 0.5;
+					const gradY = (pressureGrid[x][y+1] - pressureGrid[x][y-1]) * 0.5;
+					
+					// Pressure gradient accelerates air
+					airVelocityX[x][y] -= gradX * 0.5;
+					airVelocityY[x][y] -= gradY * 0.5;
+				}
+			}
+			
+			// Step 2: Air velocity divergence affects pressure (conservation)
+			for (let x = 1; x < pressureGridWidth - 1; x++) {
+				for (let y = 1; y < pressureGridHeight - 1; y++) {
+					// Calculate velocity divergence
+					const divX = (airVelocityX[x+1][y] - airVelocityX[x-1][y]) * 0.5;
+					const divY = (airVelocityY[x][y+1] - airVelocityY[x][y-1]) * 0.5;
+					const divergence = divX + divY;
+					
+					// Divergence affects pressure (compression/expansion)
+					pressureGrid[x][y] -= divergence * 0.3;
+				}
+			}
+			
+			// Step 3: Apply damping and clamp velocities
+			for (let x = 0; x < pressureGridWidth; x++) {
+				for (let y = 0; y < pressureGridHeight; y++) {
+					// Air resistance
+					airVelocityX[x][y] *= AIR_VELOCITY_DAMPING;
+					airVelocityY[x][y] *= AIR_VELOCITY_DAMPING;
+					
+					// Clamp to prevent instability
+					airVelocityX[x][y] = Math.max(-AIR_VELOCITY_MAX, Math.min(AIR_VELOCITY_MAX, airVelocityX[x][y]));
+					airVelocityY[x][y] = Math.max(-AIR_VELOCITY_MAX, Math.min(AIR_VELOCITY_MAX, airVelocityY[x][y]));
+				}
+			}
+		}
+		
+		// Inject pressure wave from explosion (shockwave simulation)
+		function injectExplosionPressure(centerX, centerY, radius) {
+			if (!pressureGrid || !airVelocityX || !airVelocityY) return;
+			
+			const gridCenterX = Math.floor(centerX / PRESSURE_CELL_SIZE);
+			const gridCenterY = Math.floor(centerY / PRESSURE_CELL_SIZE);
+			const gridRadius = Math.ceil(radius / PRESSURE_CELL_SIZE);
+			
+			// Inject pressure in a radial pattern
+			for (let dx = -gridRadius; dx <= gridRadius; dx++) {
+				for (let dy = -gridRadius; dy <= gridRadius; dy++) {
+					const gx = gridCenterX + dx;
+					const gy = gridCenterY + dy;
+					
+					// Check bounds
+					if (gx < 0 || gx >= pressureGridWidth || gy < 0 || gy >= pressureGridHeight) continue;
+					
+					const dist = Math.sqrt(dx*dx + dy*dy);
+					if (dist <= gridRadius && dist > 0) {
+						// Pressure falls off with distance (inverse square)
+						const pressureIncrease = (radius / 5) * (1 - dist / gridRadius);
+						pressureGrid[gx][gy] += pressureIncrease;
+						
+						// Also add radial velocity (explosion pushes air outward)
+						const angle = Math.atan2(dy, dx);
+						const velocityMag = pressureIncrease * 0.5;
+						airVelocityX[gx][gy] += Math.cos(angle) * velocityMag;
+						airVelocityY[gx][gy] += Math.sin(angle) * velocityMag;
+					}
+				}
+			}
+		}
+		
+		// NEWTONIAN GRAVITY SYSTEM - Calculate gravitational field from mass distribution
+		function updateGravityField() {
+			if (!gravityFieldX || !gravityFieldY || !settings.advancedPhysics) return;
+			
+			// Reset gravity field
+			for (let x = 0; x < gravityGridWidth; x++) {
+				for (let y = 0; y < gravityGridHeight; y++) {
+					gravityFieldX[x][y] = 0;
+					gravityFieldY[x][y] = 0;
+				}
+			}
+			
+			// Calculate mass per cell
+			const cellMass = new Array(gravityGridWidth);
+			for (let x = 0; x < gravityGridWidth; x++) {
+				cellMass[x] = new Array(gravityGridHeight).fill(0);
+			}
+			
+			// Count particle mass in each cell
+			for (let i = 0; i < currentPixels.length; i++) {
+				const pixel = currentPixels[i];
+				if (!elements[pixel.element].newtonianGravity) continue;
+				
+				const gridX = Math.floor(pixel.x / GRAVITY_CELL_SIZE);
+				const gridY = Math.floor(pixel.y / GRAVITY_CELL_SIZE);
+				
+				if (gridX >= 0 && gridX < gravityGridWidth && gridY >= 0 && gridY < gravityGridHeight) {
+					cellMass[gridX][gridY] += pixel.mass || 1;
+				}
+			}
+			
+			// Calculate gravitational field (simplified - only nearby cells for performance)
+			const maxRange = 5;  // Only calculate gravity within this many cells
+			for (let x = 0; x < gravityGridWidth; x++) {
+				for (let y = 0; y < gravityGridHeight; y++) {
+					if (cellMass[x][y] === 0) continue;
+					
+					// Apply gravity to nearby cells
+					for (let dx = -maxRange; dx <= maxRange; dx++) {
+						for (let dy = -maxRange; dy <= maxRange; dy++) {
+							if (dx === 0 && dy === 0) continue;
+							
+							const nx = x + dx;
+							const ny = y + dy;
+							
+							if (nx < 0 || nx >= gravityGridWidth || ny < 0 || ny >= gravityGridHeight) continue;
+							
+							// Calculate gravitational force
+							const dist = Math.sqrt(dx*dx + dy*dy);
+							const force = GRAVITY_CONSTANT * cellMass[x][y] / (dist * dist + 1);  // +1 prevents division by zero
+							
+							// Direction from target cell to mass cell
+							const dirX = dx / dist;
+							const dirY = dy / dist;
+							
+							// Accumulate force
+							gravityFieldX[nx][ny] += force * dirX;
+							gravityFieldY[nx][ny] += force * dirY;
+						}
+					}
+				}
+			}
+			
+			// Clamp gravity forces for stability
+			for (let x = 0; x < gravityGridWidth; x++) {
+				for (let y = 0; y < gravityGridHeight; y++) {
+					gravityFieldX[x][y] = Math.max(-GRAVITY_MAX_FORCE, Math.min(GRAVITY_MAX_FORCE, gravityFieldX[x][y]));
+					gravityFieldY[x][y] = Math.max(-GRAVITY_MAX_FORCE, Math.min(GRAVITY_MAX_FORCE, gravityFieldY[x][y]));
+				}
+			}
+		}
+		
+		// Apply Newtonian gravity to a pixel
+		function applyNewtonianGravity(pixel) {
+			if (!gravityFieldX || !gravityFieldY || !settings.advancedPhysics) return;
+			if (!elements[pixel.element].newtonianGravity) return;
+			
+			const gridX = Math.floor(pixel.x / GRAVITY_CELL_SIZE);
+			const gridY = Math.floor(pixel.y / GRAVITY_CELL_SIZE);
+			
+			if (gridX < 0 || gridX >= gravityGridWidth || gridY < 0 || gridY >= gravityGridHeight) return;
+			
+			// Apply gravitational acceleration
+			pixel.vx += gravityFieldX[gridX][gridY];
+			pixel.vy += gravityFieldY[gridX][gridY];
+		}
+		
+		// Apply air velocity to particles (drag force)
+		function applyAirDrag(pixel) {
+			if (!airVelocityX || !airVelocityY || !settings.advancedPhysics) return;
+			if (!elements[pixel.element].airDrag) return;
+			
+			const gridX = Math.floor(pixel.x / PRESSURE_CELL_SIZE);
+			const gridY = Math.floor(pixel.y / PRESSURE_CELL_SIZE);
+			
+			if (gridX < 0 || gridX >= pressureGridWidth || gridY < 0 || gridY >= pressureGridHeight) return;
+			
+			const airDragCoeff = elements[pixel.element].airDrag || 0.01;
+			pixel.vx += airVelocityX[gridX][gridY] * airDragCoeff;
+			pixel.vy += airVelocityY[gridX][gridY] * airDragCoeff;
+		}
+		
+		// COLLISION & MOMENTUM SYSTEM - Inter-particle collision detection
+		function checkParticleCollision(pixel) {
+			if (!settings.advancedPhysics || !pixel.vx || !pixel.vy) return;
+			if (!elements[pixel.element].collision) return;  // Only if element can collide
+			
+			// Check for nearby moving particles
+			for (let dx = -1; dx <= 1; dx++) {
+				for (let dy = -1; dy <= 1; dy++) {
+					if (dx === 0 && dy === 0) continue;
+					
+					const nx = pixel.x + dx;
+					const ny = pixel.y + dy;
+					
+					if (!isEmpty(nx, ny, true)) {
+						const neighbor = pixelMap[nx][ny];
+						
+						// Check if neighbor also has collision enabled
+						if (!neighbor || !elements[neighbor.element].collision) continue;
+						if (!neighbor.vx && !neighbor.vy) continue;  // Neighbor not moving
+						
+						// Calculate relative velocity
+						const relVx = pixel.vx - (neighbor.vx || 0);
+						const relVy = pixel.vy - (neighbor.vy || 0);
+						
+						// Only collide if particles are moving toward each other
+						const approachVelocity = relVx * dx + relVy * dy;
+						if (approachVelocity <= 0) continue;  // Moving away or parallel
+						
+						// Elastic collision with momentum conservation
+						const mass1 = pixel.mass || 1;
+						const mass2 = neighbor.mass || 1;
+						const totalMass = mass1 + mass2;
+						
+						// Get collision restitution (bounciness)
+						const restitution = Math.min(
+							elements[pixel.element].collision || 0.5,
+							elements[neighbor.element].collision || 0.5
+						);
+						
+						// Calculate collision normal (direction from pixel to neighbor)
+						const dist = Math.sqrt(dx*dx + dy*dy);
+						const nx_norm = dx / dist;
+						const ny_norm = dy / dist;
+						
+						// Relative velocity along collision normal
+						const vn = relVx * nx_norm + relVy * ny_norm;
+						
+						// Impulse magnitude
+						const impulse = (1 + restitution) * vn / totalMass;
+						
+						// Apply impulse (change velocities)
+						pixel.vx -= impulse * mass2 * nx_norm;
+						pixel.vy -= impulse * mass2 * ny_norm;
+						
+						if (neighbor.vx !== undefined && neighbor.vy !== undefined) {
+							neighbor.vx += impulse * mass1 * nx_norm;
+							neighbor.vy += impulse * mass1 * ny_norm;
+						}
+						
+						// Heat generation from collision (kinetic energy loss)
+						if (approachVelocity > 2) {
+							const heatGenerated = approachVelocity * 0.5;
+							pixel.temp += heatGenerated;
+							neighbor.temp += heatGenerated;
+						}
+						
+						return;  // Only handle one collision per tick
+					}
 				}
 			}
 		}
@@ -15725,8 +16756,20 @@ behaviorRules = {
 			if (pixel.temp < absoluteZero) { // Absolute Zero
 				pixel.temp = absoluteZero;
 			}
+			
+			// Adjust boiling point based on pressure (Clausius-Clapeyron approximation)
+			var tempHigh = elementInfo.tempHigh;
+			if (settings.advancedPhysics && pressureGrid && tempHigh !== undefined) {
+				const pressure = getPressureAt(pixel.x, pixel.y);
+				// Lower pressure = lower boiling point
+				// Rough approximation: For every 0.1 atm below 1.0, boiling point drops ~3°C
+				if (pressure < 1.0 && elementInfo.pressureLow) {
+					tempHigh = tempHigh - (1.0 - pressure) * 30;
+				}
+			}
+			
 			// If the pixel's temp >= the elementInfo tempHigh, change pixel.element to elementInfo.stateHigh
-			if (pixel.temp >= elementInfo.tempHigh) {
+			if (pixel.temp >= tempHigh) {
 				var result = elementInfo.stateHigh;
 				if (elementInfo.extraTempHigh) {
 					for (var extraTemp in elementInfo.extraTempHigh) {
@@ -15741,6 +16784,9 @@ behaviorRules = {
 				}
 				if (result === null) {deletePixel(pixel.x,pixel.y);return false}
 				else {
+					// MATERIAL MEMORY: Save original element when melting to molten/magma
+					var originalElement = pixel.element;
+					
 					if (elements[result].customColor) {
 						var tempColor = pixel.color;
 						changePixel(pixel,result,false);
@@ -15768,6 +16814,14 @@ behaviorRules = {
 						pixel.color = "rgb("+r+","+g+","+b+")";
 					}
 					else { changePixel(pixel,result,false); }
+					
+					// MATERIAL MEMORY: Store original element in ctype for molten materials
+					if (result === "magma" || result.startsWith("molten_")) {
+						if (!pixel.ctype) {  // Only set if not already set
+							pixel.ctype = originalElement;
+						}
+					}
+					
 					if (elementInfo.fireColor && result==="fire") {
 						pixel.color = pixelColorPick(pixel,elementInfo.fireColor);
 					}
@@ -15779,6 +16833,15 @@ behaviorRules = {
 			// If the pixel's temp <= the elementInfo tempLow, change pixel.element to elementInfo.stateLow
 			else if (pixel.temp <= elementInfo.tempLow) {
 				var result = elementInfo.stateLow;
+				
+				// MATERIAL MEMORY: Check if this molten material should restore to ctype
+				if (pixel.ctype && (pixel.element === "magma" || pixel.element.startsWith("molten_"))) {
+					if (elements[pixel.ctype]) {
+						result = pixel.ctype;  // Restore to original material
+						pixel.ctype = null;     // Clear ctype after use
+					}
+				}
+				
 				if (elementInfo.extraTempLow) {
 					for (var extraTemp in elementInfo.extraTempLow) {
 						if (pixel.temp <= extraTemp) {
@@ -15824,6 +16887,37 @@ behaviorRules = {
 					}
 				}
 			}
+			
+			// PRESSURE-BASED STATE TRANSITIONS
+			if (settings.advancedPhysics && pressureGrid) {
+				const pressure = getPressureAt(pixel.x, pixel.y);
+				
+				// Check for low pressure transitions (sublimation, boiling at low pressure)
+				if (elementInfo.pressureLow !== undefined && pressure < elementInfo.pressureLow) {
+					if (elementInfo.statePressureLow) {
+						var result = elementInfo.statePressureLow;
+						if (Array.isArray(result)) {
+							result = result[Math.floor(Math.random() * result.length)];
+						}
+						if (result !== null) {
+							changePixel(pixel, result, false);
+						}
+					}
+				}
+				// Check for high pressure transitions (compression, high-pressure phases)
+				else if (elementInfo.pressureHigh !== undefined && pressure > elementInfo.pressureHigh) {
+					if (elementInfo.statePressureHigh) {
+						var result = elementInfo.statePressureHigh;
+						if (Array.isArray(result)) {
+							result = result[Math.floor(Math.random() * result.length)];
+						}
+						if (result !== null) {
+							changePixel(pixel, result, false);
+						}
+					}
+				}
+			}
+			
 			return true;
 		}
 		function getNeighbors(pixel) {
@@ -16219,6 +17313,11 @@ behaviorRules = {
 		}
 
 		function explodeAt(x,y,radius,fire="fire") {
+			// INJECT PRESSURE into air system for shockwave
+			if (settings.advancedPhysics && pressureGrid) {
+				injectExplosionPressure(x, y, radius);
+			}
+			
 			// if fire contains , split it into an array
 			if (fire.indexOf(",") !== -1) {
 				fire = fire.split(",");
@@ -16481,6 +17580,11 @@ behaviorRules = {
 			if (settings.advancedPhysics && pressureGrid) {
 				updatePressureGrid();
 			}
+			
+			// Update gravity field if advanced physics is enabled
+			if (settings.advancedPhysics && gravityFieldX) {
+				updateGravityField();
+			}
 
 			var newCurrentPixels = currentPixels.slice();
 			shuffleArray(newCurrentPixels);
@@ -16506,7 +17610,10 @@ behaviorRules = {
 					
 					// ENHANCED PHYSICS: Apply velocity-based movement
 					if (settings.advancedPhysics && pixel.vx !== undefined) {
+						applyNewtonianGravity(pixel);  // Apply gravitational attraction
+						checkParticleCollision(pixel);  // Check for inter-particle collisions
 						applyVelocity(pixel);
+						applyAirDrag(pixel);  // Air affects particle movement
 						if (elements[pixel.element].state === "liquid") {
 							applySurfaceTension(pixel);
 							applyVorticity(pixel); // Add turbulence for realistic fluid flow
@@ -16518,6 +17625,16 @@ behaviorRules = {
 				// ENHANCED PHYSICS: Enhanced heat transfer
 				if (settings.advancedPhysics) {
 					enhancedHeatTransfer(pixel);
+				}
+				
+				// LIFE/DECAY SYSTEM: Auto-decrement life and handle death
+				if (pixel.life > 0) {
+					pixel.life--;
+					// If life reaches 0 and element has lifeKill property, delete pixel
+					if (pixel.life === 0 && elements[pixel.element].lifeKill) {
+						deletePixel(pixel.x, pixel.y);
+						continue;
+					}
 				}
 				
 				if (elements[pixel.element].tick) { // Run tick function if it exists

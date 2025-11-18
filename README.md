@@ -21,6 +21,13 @@ For code maintainability and best practices, see:
 - **[Code Structure](REFACTORING.md)** - Architecture and organization guide
 - **[Helper Utilities](src/README.md)** - Element creation helpers and examples
 
+## Physics and Simulation Analysis
+
+For physics improvements and comparative analysis:
+- **[Physics Improvements](PHYSICS-IMPROVEMENTS.md)** - Heat capacity and thermal physics enhancements
+- **[Fidelity Improvements](FIDELITY-IMPROVEMENTS.md)** - Temperature accuracy and view mode fixes
+- **[Powder Toy Comparison](POWDER-TOY-COMPARISON.md)** - Comprehensive analysis of The Powder Toy's advanced features and implementation recommendations
+
 # Controls
  * Left Click = Draw pixels
  * Right Click = Erase pixels
