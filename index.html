@@ -2107,7 +2107,20 @@ SEEDRISE: function(pixel) {
 	heatCapacity: 0.84,
 	breakInto: "glass_shard",
 	noMix: true,
-	grain: 0
+	grain: 0,
+	refraction: 1.5  // Refractive index for photons
+},
+"prism": {
+	color: "#a8d8e8",
+	behavior: behaviors.WALL,
+	category: "solids",
+	state: "solid",
+	density: 2500,
+	tempHigh: 1500,
+	stateHigh: "molten_glass",
+	refraction: 2.4,  // High dispersion for photons
+	noMix: true,
+	hidden: false
 },
 "molten_glass": {
 	reactions: {
@@ -5022,6 +5035,107 @@ SEEDRISE: function(pixel) {
 	insulate: true,
 	alias: "photon"
 },
+"photon": {
+	color: "#ffffff",
+	lifeKill: true,  // Die after lifetime expires
+	tick: function(pixel) {
+		// Initialize photon on first tick
+		if (pixel.life === undefined || pixel.life === 0) {
+			pixel.life = 100;  // Lifetime in ticks
+		}
+		
+		// Initialize wavelength (color) if not set - stored in ctype
+		if (pixel.ctype === undefined || pixel.ctype === null) {
+			// Random wavelength: 0=red, 1=orange, 2=yellow, 3=green, 4=cyan, 5=blue, 6=violet
+			pixel.ctype = Math.floor(Math.random() * 7);
+		}
+		
+		// Set color based on wavelength
+		const wavelengthColors = [
+			"#ff0000", "#ff8800", "#ffff00", "#00ff00", 
+			"#00ffff", "#0000ff", "#8800ff"
+		];
+		pixel.color = wavelengthColors[pixel.ctype % 7];
+		
+		// Initialize direction if not set
+		if (pixel.vx === undefined) {
+			const angle = Math.random() * Math.PI * 2;
+			pixel.vx = Math.cos(angle) * 4;  // High speed
+			pixel.vy = Math.sin(angle) * 4;
+		}
+		
+		// Move photon multiple pixels per tick (high speed)
+		const speed = 4;  // Pixels per tick
+		for (let step = 0; step < speed; step++) {
+			if (pixel.del) break;
+			
+			const nextX = Math.round(pixel.x + pixel.vx / speed);
+			const nextY = Math.round(pixel.y + pixel.vy / speed);
+			
+			// Check bounds
+			if (outOfBounds(nextX, nextY)) {
+				deletePixel(pixel.x, pixel.y);
+				return;
+			}
+			
+			// Check if next position is empty
+			if (isEmpty(nextX, nextY)) {
+				tryMove(pixel, nextX, nextY);
+			} else {
+				// Hit something - check for reflection/refraction
+				const hitPixel = pixelMap[nextX][nextY];
+				const hitElement = elements[hitPixel.element];
+				
+				// Glass/transparent materials - refraction
+				if (hitElement.refraction) {
+					// Simple refraction - change direction slightly
+					const refractIndex = hitElement.refraction || 1.5;
+					const angle = Math.atan2(pixel.vy, pixel.vx);
+					const newAngle = angle + (Math.random() - 0.5) * 0.3 * refractIndex;
+					pixel.vx = Math.cos(newAngle) * 4;
+					pixel.vy = Math.sin(newAngle) * 4;
+					
+					// Pass through if possible
+					if (tryMove(pixel, nextX, nextY)) {
+						// Moved through
+					} else {
+						// Couldn't move through, reflect instead
+						if (Math.abs(pixel.vx) > Math.abs(pixel.vy)) {
+							pixel.vx = -pixel.vx;
+						} else {
+							pixel.vy = -pixel.vy;
+						}
+					}
+				}
+				// Mirror/reflective materials - reflection
+				else if (hitElement.reflect) {
+					// Perfect reflection
+					if (Math.abs(pixel.vx) > Math.abs(pixel.vy)) {
+						pixel.vx = -pixel.vx;
+					} else {
+						pixel.vy = -pixel.vy;
+					}
+				}
+				// Absorbing materials - delete photon
+				else {
+					// Heat the material slightly
+					if (hitPixel.temp !== undefined) {
+						hitPixel.temp += 0.5;
+					}
+					deletePixel(pixel.x, pixel.y);
+					return;
+				}
+				break;  // Only process one collision per tick
+			}
+		}
+	},
+	category: "energy",
+	state: "gas",
+	density: 0,
+	ignoreAir: true,
+	insulate: true,
+	hidden: false
+},
 "liquid_light": {
 	color: "#bdbc9d",
 	//behavior: behaviors.SUPERFLUID,
@@ -7650,7 +7764,20 @@ SEEDRISE: function(pixel) {
 	density: 10497,
 	conduct: 0.99,
 	heatCapacity: 0.235,
-	hardness: 0.25
+	hardness: 0.25,
+	reflect: 0.95  // Highly reflective for photons
+},
+"mirror": {
+	color: "#e8e8e8",
+	behavior: behaviors.WALL,
+	category: "solids",
+	state: "solid",
+	density: 2500,
+	tempHigh: 1500,
+	stateHigh: "molten_glass",
+	reflect: 1.0,  // Perfect reflection for photons
+	noMix: true,
+	hidden: false
 },
 "tin": {
 	color: ["#9e9d98","#aeada4"],
